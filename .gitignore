@@ -1,0 +1,29 @@
+# --- CHẶN FILE MÔI TRƯỜNG & BẢO MẬT ---
+.env
+
+# --- CHẶN FILE RÁC PYTHON ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node
+node_modules/
+dist/
+build/
+
+# --- CHẶN MÔI TRƯỜNG ẢO ---
+venv/
+env/
+.venv/
+
+# --- CHẶN FILE CỦA IDE (VS Code, PyCharm) ---
+.idea/
+.vscode/
+*.swp
+
+# --- CHẶN FILE UPLOAD (Quan trọng) ---
+uploads/
+
+# OS
+.DS_Store
+Thumbs.db

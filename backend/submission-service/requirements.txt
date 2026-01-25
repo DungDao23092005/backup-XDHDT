@@ -1,0 +1,16 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+python-multipart
+python-jose[cryptography]
+aiofiles
+pymysql
+python-multipart
+pydantic
+pydantic[email]
+pydantic-settings
+python-dotenv
+httpx
+requests
+cryptography
+pypdf

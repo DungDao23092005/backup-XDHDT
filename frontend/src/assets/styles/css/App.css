@@ -1,0 +1,198 @@
+/* src/assets/styles/css/App.css */
+
+body {
+  background-color: #f0f2f5; /* Màu nền xám nhẹ hiện đại */
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.auth-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 20px;
+}
+
+.auth-card {
+  background: white;
+  width: 100%;
+  max-width: 450px;
+  padding: 40px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.auth-header h2 {
+  color: #1a73e8; /* Màu xanh chủ đạo */
+  margin-bottom: 10px;
+  font-size: 28px;
+}
+
+.auth-header p {
+  color: #65676b;
+  font-size: 14px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: #333;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 12px 15px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 16px;
+  transition: border-color 0.3s;
+  box-sizing: border-box; 
+}
+
+.form-group input:focus {
+  border-color: #1a73e8;
+  outline: none;
+}
+
+.btn-auth {
+  width: 100%;
+  padding: 14px;
+  background-color: #1a73e8;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.btn-auth:hover {
+  background-color: #1557b0;
+}
+
+.btn-auth:disabled {
+  background-color: #9cbff5;
+  cursor: not-allowed;
+}
+
+.auth-footer {
+  text-align: center;
+  margin-top: 25px;
+  font-size: 14px;
+}
+
+.auth-footer a {
+  color: #1a73e8;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.auth-footer a:hover {
+  text-decoration: underline;
+}
+
+.spinner {
+  display: inline-block;
+}
+  
+
+/* =========================================
+   🔴 RED THEME - GIAO DIỆN HỘI NGHỊ
+========================================= */
+
+:root {
+  /* Bảng màu đỏ tùy chỉnh */
+  --theme-red-primary: #d32f2f;    /* Đỏ đậm chuyên nghiệp (dùng cho nút, tiêu đề) */
+  --theme-red-hover: #b71c1c;      /* Đỏ tối hơn khi di chuột */
+  --theme-red-light: #fef2f2;      /* Đỏ nền rất nhạt (dùng cho background section) */
+  --theme-red-accent: #ffcdd2;     /* Đỏ nhấn nhẹ (viền, badge nhạt) */
+}
+
+/* --- Overrides Bootstrap Defaults --- */
+/* Biến màu primary (xanh dương mặc định) thành màu đỏ của chúng ta */
+
+/* 1. Nút bấm Primary */
+.btn-primary {
+  background-color: var(--theme-red-primary) !important;
+  border-color: var(--theme-red-primary) !important;
+  font-weight: 600;
+  transition: all 0.3s ease;
+}
+
+.btn-primary:hover, .btn-primary:focus, .btn-primary:active {
+  background-color: var(--theme-red-hover) !important;
+  border-color: var(--theme-red-hover) !important;
+  box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3) !important; /* Hiệu ứng đổ bóng đỏ */
+}
+
+/* 2. Nút bấm Outline Primary */
+.btn-outline-primary {
+  color: var(--theme-red-primary) !important;
+  border-color: var(--theme-red-primary) !important;
+  font-weight: 600;
+}
+
+.btn-outline-primary:hover {
+  background-color: var(--theme-red-primary) !important;
+  color: white !important;
+}
+
+/* 3. Màu chữ Primary */
+.text-primary {
+  color: var(--theme-red-primary) !important;
+}
+
+/* 4. Link liên kết */
+a {
+  color: var(--theme-red-primary);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--theme-red-hover);
+  text-decoration: underline;
+}
+
+/* --- Custom Layout Classes --- */
+/* Navbar chuyên nghiệp hơn */
+.public-navbar {
+  background: white;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  border-top: 4px solid var(--theme-red-primary); /* Điểm nhấn viền đỏ trên cùng */
+  padding: 15px 0;
+}
+
+.navbar-brand-text {
+  font-weight: 800;
+  font-size: 1.5rem;
+  color: #333;
+  letter-spacing: -0.5px;
+}
+
+.navbar-brand-text span {
+  color: var(--theme-red-primary); /* Chữ UTH màu đỏ */
+}
+
+/* Footer */
+.public-footer {
+  background-color: #2c2c2c;
+  color: #eee;
+  padding: 40px 0;
+  margin-top: auto; /* Đẩy footer xuống cuối */
+}
+
+/* Utility: Nền đỏ nhạt */
+.bg-red-light {
+  background-color: var(--theme-red-light) !important;
+}

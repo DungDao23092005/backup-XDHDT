@@ -1,0 +1,28 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: identity_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: uth_conference
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  backend:
+    build: .
+    container_name: identity_service
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: mysql+pymysql://root:123456@db:3306/uth_conference
+      SECRET_KEY: "chuoi_bi_mat_cua_ban"
+      ALGORITHM: "HS256"
+      ACCESS_TOKEN_EXPIRE_MINUTES: 30
+
+volumes:
+  mysql_data:
