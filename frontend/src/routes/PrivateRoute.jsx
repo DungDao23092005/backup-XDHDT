@@ -1,46 +1,44 @@
-// src/routes/PrivateRoute.jsx
 import React from "react";
-import { Navigate, Outlet } from "react-router-dom";
-import { isAuthenticated, getUserRole } from "../utils/auth";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 const PrivateRoute = ({ allowedRoles = [] }) => {
-  const isAuth = isAuthenticated();
-  const userRole = getUserRole();
+  const { user } = useAuth(); 
+  const location = useLocation();
 
-  // Chưa đăng nhập -> đá về login
-  if (!isAuth) {
-    return <Navigate to="/login" replace />;
+  if (!user) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  const normalizedUserRole = (userRole || "").toUpperCase();
-  const normalizedAllowed = (allowedRoles || []).map((r) =>
-    (r || "").toUpperCase()
-  );
+  const userRoles = user.roles || []; 
+  const requiredRoles = allowedRoles.map((r) => String(r).toUpperCase());
 
-  // Có allowedRoles mà role hiện tại không nằm trong danh sách -> chặn
-  if (
-    normalizedAllowed.length > 0 &&
-    !normalizedAllowed.includes(normalizedUserRole)
-  ) {
-    return (
-      <div style={{ padding: 24 }}>
-        <div
-          style={{
-            background: "#fff1f2",
-            border: "1px solid #fecdd3",
-            color: "#9f1239",
-            padding: 16,
-            borderRadius: 12,
-            fontWeight: 700,
-          }}
-        >
-          Bạn không có quyền truy cập trang này!
+  if (requiredRoles.length > 0) {
+    const hasPermission = userRoles.some((role) => requiredRoles.includes(role));
+    
+    if (!hasPermission) {
+      return (
+        <div className="flex items-center justify-center h-screen bg-gray-50">
+          <div className="p-8 text-center bg-white rounded-lg shadow-xl border border-red-100 max-w-md">
+            <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+                <i className="bi bi-shield-lock-fill text-red-600 text-2xl"></i>
+            </div>
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Truy cập bị từ chối</h3>
+            <p className="text-gray-500 mb-6">
+                Tài khoản <strong>{user.email}</strong> (Role: {userRoles.join(", ")}) không có quyền truy cập trang này.
+            </p>
+            <button 
+                onClick={() => window.history.back()}
+                className="btn btn-outline-danger btn-sm"
+            >
+                Quay lại
+            </button>
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
   }
 
-  // OK -> render route con
   return <Outlet />;
 };
 
