@@ -60,6 +60,7 @@ def create_access_token(
     user_id: Optional[int] = None,
     roles: Union[str, List[Any], None] = None,
     extra_claims: Optional[Dict[str, Any]] = None,
+    **kwargs, # <--- [QUAN TRỌNG] Thêm kwargs để nhận các tham số tùy biến như 'id'
 ) -> str:
     now = datetime.utcnow()
     expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -72,8 +73,18 @@ def create_access_token(
         "exp": expire,
     }
 
+    # [FIX] Tự động thêm 'id' vào payload nếu có user_id
+    # Điều này giúp Review Service lấy được current_user['id'] mà không bị lỗi KeyError
+    if user_id is not None:
+        payload["id"] = user_id
+
+    # Merge extra_claims nếu có
     if extra_claims:
         payload.update(extra_claims)
+
+    # Merge các tham số khác truyền qua kwargs (ví dụ: id=...)
+    if kwargs:
+        payload.update(kwargs)
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
@@ -83,6 +94,7 @@ def create_refresh_token(
     subject: str,
     user_id: Optional[int] = None,
     extra_claims: Optional[Dict[str, Any]] = None,
+    **kwargs, # <--- [QUAN TRỌNG] Thêm kwargs
 ) -> str:
     now = datetime.utcnow()
     expire = now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
@@ -94,9 +106,16 @@ def create_refresh_token(
         "exp": expire,
         "type": "refresh",
     }
+    
+    # [FIX] Tự động thêm 'id' cho nhất quán
+    if user_id is not None:
+        payload["id"] = user_id
 
     if extra_claims:
         payload.update(extra_claims)
+        
+    if kwargs:
+        payload.update(kwargs)
 
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 

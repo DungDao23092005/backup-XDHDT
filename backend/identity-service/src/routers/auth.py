@@ -43,10 +43,12 @@ def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
 
     role_names = [role.role_name.upper() for role in user.roles]
 
+    # [CHANGE] Truyền thêm id=user.id để token có cả 'id' và 'user_id'
     access_token = create_access_token(
         subject=user.email,
         user_id=user.id,
         roles=role_names,
+        id=user.id  # <--- THÊM DÒNG NÀY
     )
 
     refresh_token = create_refresh_token(
@@ -92,10 +94,12 @@ def refresh(body: schemas.RefreshRequest, db: Session = Depends(get_db)):
 
     role_names = [r.role_name.upper() for r in user.roles]
 
+    # [CHANGE] Thêm id vào token mới khi refresh
     new_access = create_access_token(
         subject=user.email,
         user_id=user.id,
         roles=role_names,
+        id=user.id  # <--- THÊM DÒNG NÀY
     )
 
     crud.revoke_refresh_token(db, token_hash)

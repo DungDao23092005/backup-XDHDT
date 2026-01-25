@@ -15,6 +15,13 @@ def get_current_payload(
     except ValueError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
 
+# --- THÊM HÀM NÀY ĐỂ SỬA LỖI IMPORT ERROR ---
+def get_current_user(payload: Dict[str, Any] = Depends(get_current_payload)) -> Dict[str, Any]:
+    """
+    Hàm này trả về thông tin user (payload) để dùng trong các router.
+    """
+    return payload
+
 def require_roles(allowed_roles: List[str]):
     allowed = {r.upper() for r in allowed_roles}
 

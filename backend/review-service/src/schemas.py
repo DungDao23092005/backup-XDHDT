@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
+from enum import Enum
 
 # ---------- Assignments ----------
 class AssignmentCreate(BaseModel):
@@ -122,6 +123,26 @@ class DiscussionOut(BaseModel):
     content: str
     sent_at: datetime
     parent_id: Optional[int]
+
+    class Config:
+        from_attributes = True
+
+class BidType(str, Enum):
+    YES = "YES"
+    MAYBE = "MAYBE"
+    NO = "NO"
+    CONFLICT = "CONFLICT"
+
+class BidCreate(BaseModel):
+    paper_id: int
+    bid_type: BidType
+
+class BidResponse(BaseModel):
+    id: int
+    reviewer_id: int
+    paper_id: int
+    bid_type: BidType
+    created_at: datetime
 
     class Config:
         from_attributes = True

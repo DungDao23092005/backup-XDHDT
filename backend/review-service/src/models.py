@@ -11,6 +11,7 @@ from sqlalchemy import (
     Text,
     Enum,
     ForeignKey,
+    UniqueConstraint  # <--- QUAN TRỌNG: Phải có dòng này
 )
 from sqlalchemy.orm import relationship
 
@@ -37,6 +38,13 @@ class ConflictType(str, enum.Enum):
 class ConflictStatus(str, enum.Enum):
     OPEN = "Open"
     RESOLVED = "Resolved"
+
+# Định nghĩa BidType ở đầu để tránh lỗi tham chiếu
+class BidType(str, enum.Enum):
+    YES = "YES"        # Rất muốn chấm
+    MAYBE = "MAYBE"    # Có thể chấm
+    NO = "NO"          # Không muốn chấm
+    CONFLICT = "CONFLICT" # Xung đột lợi ích
 
 
 # =========================================================
@@ -183,3 +191,24 @@ class ReviewDiscussion(Base):
     sent_at = Column(DateTime, default=datetime.utcnow)
 
     parent_id = Column(Integer, nullable=True)
+
+
+# =========================================================
+# BIDS (Nguyện vọng chấm bài)
+# =========================================================
+
+class Bid(Base):
+    __tablename__ = "bids"
+
+    id = Column(Integer, primary_key=True, index=True)
+    reviewer_id = Column(Integer, index=True)
+    paper_id = Column(Integer, index=True)
+    
+    bid_type = Column(Enum(BidType), default=BidType.MAYBE)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint('reviewer_id', 'paper_id', name='unique_bid_reviewer_paper'),
+    )

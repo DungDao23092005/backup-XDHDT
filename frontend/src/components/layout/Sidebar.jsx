@@ -8,7 +8,7 @@ const linkBase =
   "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors cursor-pointer";
 const linkInactive =
   "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900";
-// Active màu đỏ (Rose)
+// Active màu đỏ (Rose) cho Author/Admin
 const linkActive =
   "bg-rose-50 text-rose-700 border border-rose-100 font-bold shadow-sm";
 
@@ -186,11 +186,13 @@ const Sidebar = () => {
   }
 
   // =========================
-  // 3) SIDEBAR CHO REVIEWER (✅ GIỮ LINK CỦA BẠN)
+  // 3) SIDEBAR CHO REVIEWER (✅ ĐÃ CẬP NHẬT THÊM BIDDING)
   // =========================
   if ((hasRole(ROLES.REVIEWER) || hasRole(ROLES.ADMIN)) && isReviewerArea) {
     const reviewerMenu = [
       { to: "/reviewer", label: "Tổng quan", icon: "dashboard" },
+      // --- THÊM MỤC BIDDING ---
+      { to: "/reviewer/bidding", label: "Bidding (Chọn bài)", icon: "pan_tool" }, 
       { to: "/reviewer/assignments", label: "Bài báo chấm điểm", icon: "description" },
       { to: "/reviewer/coi", label: "Khai báo COI", icon: "gavel" },
     ];
@@ -236,6 +238,17 @@ const Sidebar = () => {
                 <span>{item.label}</span>
               </NavLink>
             ))}
+            <div className="my-2 border-t border-gray-100 mx-2" />
+            <NavLink
+              to="/"
+              className={
+                linkInactive +
+                " flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium"
+              }
+            >
+              <span className="material-symbols-outlined text-[20px]">arrow_back</span>
+              <span>Về trang chính</span>
+            </NavLink>
           </nav>
 
           <div className="mt-auto">

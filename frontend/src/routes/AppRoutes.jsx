@@ -31,10 +31,11 @@ import MyCOI from "../pages/reviewer/MyCOI";
 import COINew from "../pages/reviewer/COINew";
 import ReviewWorkspace from "../pages/reviewer/ReviewWorkspace";
 import ReviewDiscussion from "../pages/reviewer/ReviewDiscussion";
+import PaperBidding from "../pages/reviewer/PaperBidding"; // Đã import
 
 // Admin Pages
-import AdminDashboard from "../pages/admin/AdminDashboard"; // Quản lý user (code cũ)
-import DashboardOverview from "../pages/admin/DashboardOverview"; // Tổng quan mới
+import AdminDashboard from "../pages/admin/AdminDashboard"; 
+import DashboardOverview from "../pages/admin/DashboardOverview"; 
 
 const AppRoutes = () => {
   return (
@@ -84,6 +85,9 @@ const AppRoutes = () => {
 
           {/* /reviewer/coi/new */}
           <Route path="coi/new" element={<COINew />} />
+
+          {/* /reviewer/bidding - ROUTE MỚI THÊM VÀO */}
+          <Route path="bidding" element={<PaperBidding />} />
 
           {/* /reviewer/review/:assignmentId */}
           <Route path="review/:assignmentId" element={<ReviewWorkspace />} />
