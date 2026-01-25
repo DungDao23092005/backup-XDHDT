@@ -77,7 +77,6 @@ services:
       CONFERENCE_SERVICE_URL: http://conference-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
-
       <<: *jwt_common
     volumes:
       - ./backend/submission-service/uploads:/app/uploads
@@ -120,7 +119,6 @@ services:
       - ./backend/notification-service/.env
     environment:
       DATABASE_URL: mysql+pymysql://root:root@notification-db:3306/notification_db
-
       <<: *jwt_common
     networks:
       - confms-network
@@ -170,7 +168,6 @@ services:
       REVIEW_SERVICE_URL: http://review-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
-
       <<: *jwt_common
     networks:
       - confms-network
@@ -211,8 +208,9 @@ services:
       - ./backend/intelligent-service/.env
     environment:
       DATABASE_URL: mysql+pymysql://root:root@intelligent-db:3306/intelligent_db
-
       <<: *jwt_common
+    # [QUAN TRỌNG] Tắt chế độ reload để tránh lỗi tràn RAM (Errno 12)
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend/intelligent-service/src:/app/src
     networks:
@@ -265,7 +263,6 @@ services:
       CONFERENCE_SERVICE_URL: http://conference-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
-
       <<: *jwt_common
     networks:
       - confms-network

@@ -1,25 +1,17 @@
-import axiosClient from './axiosClient';
-
-const IDENTITY_PREFIX = '/identity';
+import axiosClient from "./axiosClient";
 
 const authApi = {
-  register: (data) => {
-    return axiosClient.post(`${IDENTITY_PREFIX}/api/auth/register`, data);
+  // [FIX] Sửa để nhận vào 1 object data = { email, password }
+  login: (data) => {
+    return axiosClient.post("/identity/api/auth/login", data);
   },
 
-  login: (email, password) => {
-        return axiosClient.post(`${IDENTITY_PREFIX}/api/auth/login`, {
-        email: email, 
-        password: password
-    });
+  register: (data) => {
+    return axiosClient.post("/identity/api/auth/register", data);
   },
 
   getMe: () => {
-    return axiosClient.get(`${IDENTITY_PREFIX}/api/users/me`);
-  },
-
-  logout: () => {
-    return axiosClient.post(`${IDENTITY_PREFIX}/api/auth/logout`);
+    return axiosClient.get("/identity/api/auth/me");
   },
 };
 
