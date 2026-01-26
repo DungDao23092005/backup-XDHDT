@@ -102,6 +102,12 @@ const Login = () => {
   const handleOrcid = () => toast.info("ORCID login: Chưa tích hợp.");
   const handleGoogle = () => toast.info("Google login: Chưa tích hợp.");
 
+  // Hàm xử lý chung cho các link chưa phát triển
+  const handlePlaceholderClick = (e) => {
+    e.preventDefault();
+    toast.info("Chức năng đang được phát triển.");
+  };
+
   return (
     <div className="bg-background-light dark:bg-background-dark min-h-screen flex flex-col">
       <div className="flex flex-1 w-full h-screen overflow-hidden">
@@ -158,14 +164,23 @@ const Login = () => {
               </div>
             </div>
 
+            {/* SỬA LỖI 1: Thay thẻ a bằng button cho Chính sách & Điều khoản */}
             <div className="flex gap-2 text-sm text-gray-400">
-              <a className="hover:text-white transition-colors" href="#">
+              <button 
+                className="hover:text-white transition-colors bg-transparent border-0 p-0 cursor-pointer"
+                type="button"
+                onClick={handlePlaceholderClick}
+              >
                 Chính sách bảo mật
-              </a>
+              </button>
               <span>•</span>
-              <a className="hover:text-white transition-colors" href="#">
+              <button 
+                className="hover:text-white transition-colors bg-transparent border-0 p-0 cursor-pointer"
+                type="button"
+                onClick={handlePlaceholderClick}
+              >
                 Điều khoản dịch vụ
-              </a>
+              </button>
             </div>
           </div>
         </div>
@@ -232,10 +247,15 @@ const Login = () => {
                     >
                       Mật khẩu
                     </label>
+                    {/* SỬA LỖI 2: Thay thẻ a bằng button cho Quên mật khẩu */}
                     <div className="text-sm">
-                      <a className="font-medium text-primary hover:text-red-700" href="#">
+                      <button 
+                        className="font-medium text-primary hover:text-red-700 bg-transparent border-0 p-0 cursor-pointer" 
+                        type="button"
+                        onClick={handlePlaceholderClick}
+                      >
                         Quên mật khẩu?
-                      </a>
+                      </button>
                     </div>
                   </div>
 
