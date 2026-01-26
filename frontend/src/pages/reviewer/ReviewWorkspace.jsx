@@ -1,54 +1,169 @@
 import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { toast } from "react-toastify";
-import reviewApi from "../../api/reviewApi"; // Giả định bạn đã có API này
-import submissionApi from "../../api/submissionApi"; // API để lấy thông tin bài báo
-// Nếu chưa có api lấy AI analysis, bạn có thể gọi trực tiếp hoặc tích hợp vào submissionApi
+import reviewApi from "../../api/reviewApi";
+import * as submissionApi from "../../api/submissionApi";
+import ReviewForm from "./ReviewForm";
 
 const ReviewWorkspace = () => {
   const { assignmentId } = useParams();
   const navigate = useNavigate();
 
-  // State quản lý dữ liệu
   const [loading, setLoading] = useState(true);
   const [paper, setPaper] = useState(null);
-  const [aiAnalysis, setAiAnalysis] = useState(null); // Dữ liệu AI
+  const [assignment, setAssignment] = useState(null);
 
-  // State form review
-  const [reviewData, setReviewData] = useState({
-    score: 0,
-    confidence: 0,
-    comments: "",
-    confidential_comments: "", // Nhận xét kín cho Chair
+  const [blockedByCoi, setBlockedByCoi] = useState(false);
+  const [coiInfo, setCoiInfo] = useState(null);
+
+  const [reviewId, setReviewId] = useState(null);
+  const [criteriaIdMap, setCriteriaIdMap] = useState({}); // { novelty: id, ... }
+
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState("");
+
+  // Form state
+  const [form, setForm] = useState({
+    // review main
+    final_score: 0,
+    confidence_score: 3,
+    content_author: "",
+    content_pc: "",
+    is_anonymous: true,
+    is_draft: true,
+
+    // UI-only
+    recommendation: "",
+
+    // criterias
+    criterias: {
+      novelty: { criteria_name: "Novelty", grade: 0, weight: 0.3, comment: "" },
+      methodology: { criteria_name: "Methodology", grade: 0, weight: 0.4, comment: "" },
+      presentation: { criteria_name: "Presentation", grade: 0, weight: 0.3, comment: "" },
+    },
   });
 
-  // Load dữ liệu khi vào trang
+  const formatNow = () => new Date().toLocaleString("vi-VN");
+
+  const enumValue = (x) => (x?.value ?? x ?? "").toString();
+
+  const ensureAssignmentAccepted = async (a) => {
+    // Backend rule: chỉ Accepted mới được tạo review
+    const st = enumValue(a?.status).toLowerCase();
+    if (st === "invited") {
+      await reviewApi.acceptAssignment(a.id);
+      const refreshed = await reviewApi.getAssignment(a.id);
+      return refreshed.data;
+    }
+    return a;
+  };
+
+  const checkOpenCoiForPaper = async (paperId) => {
+    // reviewer_id sẽ bị override ở backend => chỉ cần paper_id
+    const res = await reviewApi.listCOI({ paper_id: Number(paperId) });
+    const list = res.data || [];
+    const open = list.find((c) => enumValue(c.status) === "Open");
+    return open || null;
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        // 1. Lấy chi tiết Assignment & Paper
-        const assignmentRes = await reviewApi.getAssignmentDetail(assignmentId);
-        const paperData = assignmentRes.data.paper; // Giả sử cấu trúc trả về có paper
-        setPaper(paperData);
+        setBlockedByCoi(false);
+        setCoiInfo(null);
 
-        // 2. Lấy dữ liệu AI Analysis (Giả lập hoặc gọi API thực tế)
-        // Nếu backend chưa trả về kèm paper, bạn cần gọi endpoint riêng của intelligent-service
-        // Ví dụ: const aiRes = await intelligentApi.analyze(paperData.abstract);
-        // Ở đây tôi giả lập dữ liệu để bạn thấy UI hoạt động
-        const mockAI = {
-          neutral_summary: "Bài báo đề xuất một kiến trúc Microservices mới sử dụng Python và AI để quản lý hội nghị. Phương pháp giúp giảm thiểu độ trễ và tăng khả năng mở rộng.",
-          key_points: {
-            claims: ["Tăng tốc độ xử lý 20%", "Giảm chi phí vận hành"],
-            methods: ["Microservices Pattern", "Deep Learning cho NLP"],
-            datasets: ["UTH-Conf Dataset 2024"]
-          }
-        };
-        setAiAnalysis(mockAI);
+        // 1) Assignment detail
+        const assignmentRes = await reviewApi.getAssignment(assignmentId);
+        let a = assignmentRes.data;
 
+        // 1.1) auto-accept nếu Invited
+        try {
+          a = await ensureAssignmentAccepted(a);
+        } catch (e) {
+          // Không chặn cứng: nếu accept fail thì vẫn hiển thị thông báo và cho user quay lại
+          const msg = e?.response?.data?.detail || e?.message || "Không thể accept assignment.";
+          toast.error(msg);
+        }
+
+        setAssignment(a);
+
+        // 2) Paper id
+        const paperId = a.paper_id ?? a.paperId ?? a.paper?.id;
+        if (!paperId) throw new Error("Assignment missing paper_id");
+
+        // 3) COI check (Open => block)
+        const openCoi = await checkOpenCoiForPaper(paperId);
+        if (openCoi) {
+          setBlockedByCoi(true);
+          setCoiInfo(openCoi);
+        }
+
+        // 4) Paper detail (fallback qua submissionApi)
+        if (a.paper) {
+          setPaper(a.paper);
+        } else {
+          const p = await submissionApi.getPaperForReviewer(paperId);
+          setPaper(p);
+        }
+
+        // 5) Nếu bị COI thì không cần load review/criterias nữa
+        if (openCoi) return;
+
+        // 6) Load existing review (nếu có)
+        const reviewsRes = await reviewApi.listReviews({ assignmentId: Number(assignmentId) });
+        const reviews = reviewsRes.data || [];
+
+        if (reviews.length > 0) {
+          const r0 = reviews[0];
+          setReviewId(r0.id);
+
+          const rDetailRes = await reviewApi.getReview(r0.id);
+          const r = rDetailRes.data;
+
+          // map criterias id theo criteria_name
+          const map = {};
+          (r.criterias || []).forEach((c) => {
+            const name = (c.criteria_name || "").toLowerCase();
+            if (name.includes("novel")) map.novelty = c.id;
+            else if (name.includes("method")) map.methodology = c.id;
+            else if (name.includes("present")) map.presentation = c.id;
+          });
+          setCriteriaIdMap(map);
+
+          const findById = (id) => (r.criterias || []).find((c) => c.id === id);
+
+          setForm((prev) => ({
+            ...prev,
+            final_score: r.final_score ?? 0,
+            confidence_score: r.confidence_score ?? 3,
+            content_author: r.content_author ?? "",
+            content_pc: r.content_pc ?? "",
+            is_anonymous: r.is_anonymous ?? true,
+            is_draft: r.is_draft ?? true,
+            criterias: {
+              novelty: {
+                ...prev.criterias.novelty,
+                grade: findById(map.novelty)?.grade ?? prev.criterias.novelty.grade,
+                comment: findById(map.novelty)?.comment ?? prev.criterias.novelty.comment,
+              },
+              methodology: {
+                ...prev.criterias.methodology,
+                grade: findById(map.methodology)?.grade ?? prev.criterias.methodology.grade,
+                comment: findById(map.methodology)?.comment ?? prev.criterias.methodology.comment,
+              },
+              presentation: {
+                ...prev.criterias.presentation,
+                grade: findById(map.presentation)?.grade ?? prev.criterias.presentation.grade,
+                comment: findById(map.presentation)?.comment ?? prev.criterias.presentation.comment,
+              },
+            },
+          }));
+        }
       } catch (error) {
         console.error("Error fetching data:", error);
-        toast.error("Không thể tải thông tin bài báo.");
+        toast.error("Không thể tải trang chấm điểm.");
       } finally {
         setLoading(false);
       }
@@ -57,197 +172,318 @@ const ReviewWorkspace = () => {
     fetchData();
   }, [assignmentId]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const validateBeforeSave = () => {
+    const { criterias, content_author, recommendation } = form;
+
+    const hasAnyGrade =
+      (criterias.novelty.grade || 0) > 0 &&
+      (criterias.methodology.grade || 0) > 0 &&
+      (criterias.presentation.grade || 0) > 0;
+
+    return {
+      hasAnyGrade,
+      hasAuthorComment: (content_author || "").trim().length > 0,
+      hasRecommendation: !!recommendation,
+    };
+  };
+
+  const upsertReviewAndCriterias = async ({ draft }) => {
+    if (blockedByCoi) {
+      // chặn tuyệt đối tại UI để khỏi spam request 400
+      throw new Error("COI Open: cannot create/update review.");
+    }
+
+    // Guard: assignment must be Accepted
+    const st = enumValue(assignment?.status).toLowerCase();
+    if (st !== "accepted") {
+      // thử accept lại một lần
+      const msg = "Assignment chưa Accepted. Vui lòng Accept trước khi chấm.";
+      throw new Error(msg);
+    }
+
+    const reviewPayload = {
+      assignment_id: Number(assignmentId),
+      final_score: form.final_score ?? 0,
+      confidence_score: form.confidence_score ?? 3,
+      content_author: form.content_author ?? "",
+      content_pc: form.content_pc ?? "",
+      is_anonymous: form.is_anonymous ?? true,
+      is_draft: draft,
+    };
+
+    let rid = reviewId;
+    if (!rid) {
+      const created = await reviewApi.createReview(reviewPayload);
+      rid = created.data.id;
+      setReviewId(rid);
+    } else {
+      await reviewApi.updateReview(rid, reviewPayload);
+    }
+
+    // upsert criterias
+    const entries = [
+      { key: "novelty", data: form.criterias.novelty },
+      { key: "methodology", data: form.criterias.methodology },
+      { key: "presentation", data: form.criterias.presentation },
+    ];
+
+    const newMap = { ...criteriaIdMap };
+
+    for (const item of entries) {
+      const payload = {
+        criteria_name: item.data.criteria_name,
+        grade: item.data.grade || null,
+        weight: item.data.weight,
+        comment: item.data.comment || null,
+      };
+
+      const existingId = newMap[item.key];
+      if (existingId) {
+        await reviewApi.updateCriteria(rid, existingId, payload);
+      } else {
+        const createdC = await reviewApi.addCriteria(rid, payload);
+        newMap[item.key] = createdC.data.id;
+      }
+    }
+
+    setCriteriaIdMap(newMap);
+    return rid;
+  };
+
+  const handleSaveDraft = async () => {
+    if (blockedByCoi) {
+      toast.error("Bài này đang có COI (Open). Không thể lưu nháp / chấm điểm.");
+      return;
+    }
+
     try {
-      await reviewApi.submitReview(assignmentId, reviewData);
-      toast.success("Đã gửi kết quả phản biện thành công!");
-      navigate("/reviewer/assignments");
-    } catch (error) {
-      toast.error("Lỗi khi gửi phản biện.");
+      setIsSaving(true);
+      await upsertReviewAndCriterias({ draft: true });
+      setLastSavedAt(formatNow());
+      toast.success("Đã lưu bản nháp.");
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.response?.data?.detail || e?.message || "Lưu bản nháp thất bại.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  if (loading) return <div className="text-center mt-5"><div className="spinner-border text-primary"></div><p>Đang tải dữ liệu...</p></div>;
-  if (!paper) return <div className="text-center mt-5 text-danger">Không tìm thấy bài báo.</div>;
+  const handleSubmitFinal = async () => {
+    if (blockedByCoi) {
+      toast.error("Bài này đang có COI (Open). Không thể gửi đánh giá.");
+      return;
+    }
+
+    const v = validateBeforeSave();
+    if (!v.hasAnyGrade) return toast.error("Vui lòng chấm đủ 3 tiêu chí (1-5).");
+    if (!v.hasAuthorComment) return toast.error("Vui lòng nhập nhận xét gửi tác giả.");
+    if (!v.hasRecommendation) return toast.error("Vui lòng chọn đánh giá tổng quát.");
+
+    try {
+      setIsSubmitting(true);
+
+      // save as not draft first
+      const rid = await upsertReviewAndCriterias({ draft: false });
+
+      // submit
+      await reviewApi.submitReview(rid);
+
+      toast.success("Đã gửi đánh giá thành công!");
+      navigate("/reviewer/assignments");
+    } catch (e) {
+      console.error(e);
+      toast.error(e?.response?.data?.detail || e?.message || "Gửi đánh giá thất bại.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (loading)
+    return (
+      <div className="text-center mt-5">
+        <div className="spinner-border text-primary"></div>
+        <p>Đang tải dữ liệu...</p>
+      </div>
+    );
+
+  if (!paper)
+    return <div className="text-center mt-5 text-danger">Không tìm thấy bài báo.</div>;
+
+  // BLOCKED UI (COI Open)
+  if (blockedByCoi) {
+    const st = enumValue(coiInfo?.status) || "Open";
+    const type = enumValue(coiInfo?.type) || "Manual_Declared";
+    return (
+      <div className="container-fluid p-4">
+        <div className="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+          <div>
+            <h4 className="mb-1 text-primary">Review Form</h4>
+            <span className="badge bg-secondary me-2">{paper.track_name || "General Track"}</span>
+            <span className="text-muted">Paper ID: #{paper.id}</span>
+          </div>
+          <div className="d-flex gap-2">
+            <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate(-1)}>
+              <i className="bi bi-arrow-left"></i> Quay lại
+            </button>
+          </div>
+        </div>
+
+        <div className="alert alert-danger d-flex align-items-start gap-3" role="alert">
+          <i className="bi bi-exclamation-triangle-fill fs-4"></i>
+          <div>
+            <div className="fw-bold mb-1">Bị chặn do COI (Conflict of Interest)</div>
+            <div className="small">
+              Hệ thống phát hiện bạn đã khai báo COI cho bài này (status: <b>{st}</b>, type: <b>{type}</b>).
+              Theo quy tắc hiện tại, bạn không thể tạo/lưu/gửi đánh giá cho bài báo này.
+            </div>
+            {coiInfo?.description ? (
+              <div className="small mt-2">
+                <b>Mô tả COI:</b> {coiInfo.description}
+              </div>
+            ) : null}
+
+            <div className="mt-3 d-flex flex-wrap gap-2">
+              <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate("/reviewer/assignments")}>
+                Về danh sách assignments
+              </button>
+              <Link className="btn btn-outline-danger btn-sm" to="/reviewer/coi">
+                Xem COI của tôi
+              </Link>
+            </div>
+
+            <div className="small text-muted mt-3">
+              Gợi ý: Nếu COI này được khai báo nhầm, bạn cần cơ chế “resolve/close COI” (hiện backend chưa có endpoint).
+              Khi COI không còn Open, bạn mới chấm được.
+            </div>
+          </div>
+        </div>
+
+        {/* Paper info vẫn cho xem */}
+        <div className="card shadow-sm">
+          <div className="card-header bg-light fw-bold">
+            <i className="bi bi-file-text me-2"></i> Thông tin bài báo
+          </div>
+          <div className="card-body">
+            <h5 className="card-title text-dark fw-bold">{paper.title}</h5>
+            <p className="card-text mt-3">{paper.abstract}</p>
+            <div className="mt-3">
+              <span className="fw-bold">Keywords: </span>
+              {(paper.keywords || "")
+                .split(",")
+                .filter(Boolean)
+                .map((kw, idx) => (
+                  <span key={idx} className="badge bg-light text-dark border me-1">
+                    {kw.trim()}
+                  </span>
+                ))}
+            </div>
+
+            <div className="mt-4 d-grid gap-2">
+              {paper.versions?.length > 0 && paper.versions[0]?.file_url ? (
+                <a
+                  href={paper.versions[0].file_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn btn-outline-primary"
+                >
+                  <i className="bi bi-file-pdf"></i> Xem toàn văn (PDF)
+                </a>
+              ) : (
+                <button className="btn btn-outline-secondary" disabled>
+                  <i className="bi bi-file-pdf"></i> Chưa có PDF
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="container-fluid p-4">
       {/* Header */}
       <div className="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
         <div>
-          <h4 className="mb-1 text-primary">Review Workspace</h4>
+          <h4 className="mb-1 text-primary">Review Form</h4>
           <span className="badge bg-secondary me-2">{paper.track_name || "General Track"}</span>
           <span className="text-muted">Paper ID: #{paper.id}</span>
         </div>
-        <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate(-1)}>
-          <i className="bi bi-arrow-left"></i> Quay lại
-        </button>
+        <div className="d-flex gap-2">
+          <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate(-1)}>
+            <i className="bi bi-arrow-left"></i> Quay lại
+          </button>
+        </div>
       </div>
 
+      {/* Optional: cảnh báo nếu assignment chưa Accepted */}
+      {enumValue(assignment?.status).toLowerCase() !== "accepted" ? (
+        <div className="alert alert-warning d-flex align-items-center gap-2" role="alert">
+          <i className="bi bi-info-circle-fill"></i>
+          <div className="small">
+            Assignment hiện tại: <b>{enumValue(assignment?.status)}</b>. Bạn chỉ có thể tạo review khi status là <b>Accepted</b>.
+          </div>
+        </div>
+      ) : null}
+
       <div className="row g-4">
-        {/* ================= LEFT COLUMN: PAPER INFO & AI ================= */}
-        <div className="col-lg-6" style={{ height: "80vh", overflowY: "auto" }}>
-          
-          {/* 1. Paper Abstract Card */}
+        {/* LEFT: paper info */}
+        <div className="col-lg-6" style={{ height: "82vh", overflowY: "auto" }}>
           <div className="card shadow-sm mb-4">
             <div className="card-header bg-light fw-bold">
-              <i className="bi bi-file-text me-2"></i> Chi tiết bài báo
+              <i className="bi bi-file-text me-2"></i> Thông tin bài báo
             </div>
             <div className="card-body">
               <h5 className="card-title text-dark fw-bold">{paper.title}</h5>
-              {/* Double-blind: Không hiện tên tác giả nếu chế độ ẩn danh bật */}
-              <p className="card-text mt-3 text-justify">{paper.abstract}</p>
-              
+              <p className="card-text mt-3">{paper.abstract}</p>
+
               <div className="mt-3">
                 <span className="fw-bold">Keywords: </span>
-                {paper.keywords?.split(",").map((kw, idx) => (
-                  <span key={idx} className="badge bg-light text-dark border me-1">{kw.trim()}</span>
-                ))}
+                {(paper.keywords || "")
+                  .split(",")
+                  .filter(Boolean)
+                  .map((kw, idx) => (
+                    <span key={idx} className="badge bg-light text-dark border me-1">
+                      {kw.trim()}
+                    </span>
+                  ))}
               </div>
 
-              {paper.file_url && (
-                <div className="mt-4 d-grid">
-                  <a href={paper.file_url} target="_blank" rel="noreferrer" className="btn btn-outline-primary">
+              {/* PDF link */}
+              <div className="mt-4 d-grid gap-2">
+                {paper.versions?.length > 0 && paper.versions[0]?.file_url ? (
+                  <a
+                    href={paper.versions[0].file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn btn-outline-primary"
+                  >
                     <i className="bi bi-file-pdf"></i> Xem toàn văn (PDF)
                   </a>
-                </div>
-              )}
+                ) : (
+                  <button className="btn btn-outline-secondary" disabled>
+                    <i className="bi bi-file-pdf"></i> Chưa có PDF
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* 2. AI Assistance Card (Yêu cầu đề bài) */}
-          {aiAnalysis && (
-            <div className="card shadow-sm border-info mb-4">
-              <div className="card-header bg-info text-white fw-bold d-flex justify-content-between">
-                <span><i className="bi bi-robot me-2"></i> AI Assistant Analysis</span>
-                <span className="badge bg-white text-info" style={{fontSize: "0.7em"}}>BETA</span>
-              </div>
-              <div className="card-body bg-light">
-                {/* Neutral Summary */}
-                <div className="mb-3">
-                  <h6 className="fw-bold text-info">Tóm tắt trung lập (Neutral Summary):</h6>
-                  <p className="small text-muted fst-italic border-start border-4 border-info ps-2">
-                    "{aiAnalysis.neutral_summary}"
-                  </p>
-                </div>
-
-                {/* Key Points Extraction */}
-                <div className="row">
-                  <div className="col-md-4">
-                    <h6 className="fw-bold text-success small">Claims (Tuyên bố)</h6>
-                    <ul className="small text-muted ps-3">
-                      {aiAnalysis.key_points.claims.map((c, i) => <li key={i}>{c}</li>)}
-                    </ul>
-                  </div>
-                  <div className="col-md-4">
-                    <h6 className="fw-bold text-primary small">Methods (Phương pháp)</h6>
-                    <ul className="small text-muted ps-3">
-                      {aiAnalysis.key_points.methods.map((m, i) => <li key={i}>{m}</li>)}
-                    </ul>
-                  </div>
-                  <div className="col-md-4">
-                    <h6 className="fw-bold text-warning small">Datasets</h6>
-                    <ul className="small text-muted ps-3">
-                      {aiAnalysis.key_points.datasets.map((d, i) => <li key={i}>{d}</li>)}
-                    </ul>
-                  </div>
-                </div>
-              </div>
-              <div className="card-footer text-muted small text-center">
-                * AI suggestions are for reference only. Please verify with the full paper.
-              </div>
-            </div>
-          )}
+          {/* Bạn có thể giữ AI card mock ở đây nếu muốn */}
         </div>
 
-        {/* ================= RIGHT COLUMN: REVIEW FORM ================= */}
-        <div className="col-lg-6">
-          <div className="card shadow-lg border-0 h-100">
-            <div className="card-header bg-primary text-white fw-bold">
-              <i className="bi bi-pencil-square me-2"></i> Phiếu đánh giá (Review Form)
-            </div>
-            <div className="card-body">
-              <form onSubmit={handleSubmit}>
-                
-                {/* Score Section */}
-                <div className="mb-4 p-3 bg-light rounded">
-                  <label className="form-label fw-bold">Điểm đánh giá (Score)</label>
-                  <div className="d-flex justify-content-between px-2">
-                    {[-3, -2, -1, 0, 1, 2, 3].map((s) => (
-                      <div key={s} className="form-check text-center">
-                        <input
-                          className="form-check-input float-none"
-                          type="radio"
-                          name="score"
-                          value={s}
-                          checked={reviewData.score === s}
-                          onChange={() => setReviewData({...reviewData, score: s})}
-                        />
-                        <div className="small fw-bold mt-1" style={{color: s < 0 ? 'red' : s > 0 ? 'green' : 'gray'}}>
-                          {s}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="d-flex justify-content-between small text-muted mt-2 px-2">
-                    <span>Strong Reject</span>
-                    <span>Borderline</span>
-                    <span>Strong Accept</span>
-                  </div>
-                </div>
-
-                {/* Confidence Section */}
-                <div className="mb-4">
-                   <label className="form-label fw-bold">Độ tin cậy (Confidence)</label>
-                   <select 
-                      className="form-select"
-                      value={reviewData.confidence}
-                      onChange={(e) => setReviewData({...reviewData, confidence: parseInt(e.target.value)})}
-                   >
-                     <option value="1">1 - Thấp (Không đúng chuyên môn)</option>
-                     <option value="2">2 - Trung bình</option>
-                     <option value="3">3 - Cao</option>
-                     <option value="4">4 - Rất cao (Chuyên gia lĩnh vực này)</option>
-                   </select>
-                </div>
-
-                {/* Detailed Comments */}
-                <div className="mb-3">
-                  <label className="form-label fw-bold">Nhận xét chi tiết (Comments to Authors)</label>
-                  <textarea
-                    className="form-control"
-                    rows="8"
-                    placeholder="Nhập nhận xét chi tiết về điểm mạnh, điểm yếu..."
-                    value={reviewData.comments}
-                    onChange={(e) => setReviewData({...reviewData, comments: e.target.value})}
-                    required
-                  ></textarea>
-                  <div className="form-text text-end">
-                    Markdown supported.
-                  </div>
-                </div>
-
-                {/* Confidential Comments */}
-                <div className="mb-4">
-                  <label className="form-label fw-bold text-danger">Nhận xét kín (Confidential to Chair)</label>
-                  <textarea
-                    className="form-control bg-light"
-                    rows="3"
-                    placeholder="Chỉ có Chair mới đọc được nội dung này (ví dụ: nghi ngờ đạo văn)..."
-                    value={reviewData.confidential_comments}
-                    onChange={(e) => setReviewData({...reviewData, confidential_comments: e.target.value})}
-                  ></textarea>
-                </div>
-
-                <div className="d-grid gap-2">
-                  <button type="submit" className="btn btn-primary btn-lg">
-                    <i className="bi bi-send-check me-2"></i> Gửi kết quả phản biện
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
+        {/* RIGHT: Review form */}
+        <div className="col-lg-6" style={{ height: "86vh", overflowY: "auto" }}>
+          <ReviewForm
+            form={form}
+            setForm={setForm}
+            isSaving={isSaving}
+            isSubmitting={isSubmitting}
+            lastSavedAt={lastSavedAt}
+            onSaveDraft={handleSaveDraft}
+            onSubmitFinal={handleSubmitFinal}
+          />
         </div>
       </div>
     </div>

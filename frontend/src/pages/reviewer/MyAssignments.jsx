@@ -43,15 +43,53 @@ export default function MyAssignments() {
   const [err, setErr] = useState("");
   const [items, setItems] = useState([]);
 
+  // NEW: lưu set paper_id đang có COI Open
+  const [openCoiPaperIds, setOpenCoiPaperIds] = useState(new Set());
+
+  // NEW: trạng thái resolve COI theo paper_id (disable nút theo hàng)
+  const [resolvingByPaperId, setResolvingByPaperId] = useState({});
+
   const [tab, setTab] = useState("all"); // all | todo | done | blocked
 
   const load = async () => {
     setLoading(true);
     setErr("");
+
     try {
-      // endpoint này bạn đã có: GET /review/assignments/
+      // 1) Load assignments
       const res = await reviewApi.listMyAssignments();
-      setItems(res.data || []);
+      const assignments = res.data || [];
+
+      // 2) Load my COI (Open) và build Set(paper_id)
+      // reviewer_id đã bị override ở backend => chỉ trả COI của chính reviewer
+      const coiRes = await reviewApi.listMyCOI();
+      const myCoi = coiRes.data || [];
+
+      const openSet = new Set(
+        myCoi
+          .filter((c) => {
+            const st = (c.status?.value ?? c.status ?? "").toString();
+            return st.toLowerCase() === "open";
+          })
+          .map((c) => c.paper_id)
+      );
+
+      setOpenCoiPaperIds(openSet);
+
+      // 3) Overlay status: paper nào COI Open -> coi như "COI" để UI chặn
+      const merged = assignments.map((a) => {
+        const aStatus = (a.status?.value ?? a.status ?? "").toString();
+        const isCompleted = aStatus.toLowerCase() === "completed";
+        const blockedByCoi = openSet.has(a.paper_id) && !isCompleted;
+
+        return {
+          ...a,
+          _ui_status: blockedByCoi ? "COI" : aStatus, // UI-only
+          _blockedByCoi: blockedByCoi,
+        };
+      });
+
+      setItems(merged);
     } catch (e) {
       setErr(e?.response?.data?.detail || e?.message || "Không tải được assignments");
     } finally {
@@ -63,12 +101,57 @@ export default function MyAssignments() {
     load();
   }, []);
 
+  // NEW: resolve COI (Open -> Resolved) và accept lại assignment
+  const handleResolveCoiAndAccept = async (paperId, assignmentId) => {
+    try {
+      setErr("");
+      setResolvingByPaperId((p) => ({ ...p, [paperId]: true }));
+
+      // 1) lấy COI của paper này (backend sẽ auto ép reviewer_id theo token)
+      // ƯU TIÊN: nếu bạn đã thêm reviewApi.listMyCOIByPaper thì dùng
+      let list = [];
+      if (typeof reviewApi.listMyCOIByPaper === "function") {
+        const res = await reviewApi.listMyCOIByPaper(paperId);
+        list = res.data || [];
+      } else {
+        // fallback: lấy tất cả COI của mình rồi lọc paper_id
+        const res = await reviewApi.listMyCOI();
+        list = (res.data || []).filter((x) => x.paper_id === paperId);
+      }
+
+      const open = list.find((x) => (x.status || "").toString().toLowerCase() === "open");
+      if (!open) {
+        throw new Error("Không tìm thấy COI Open để gỡ.");
+      }
+
+      // 2) resolve COI
+      if (typeof reviewApi.updateCOI !== "function") {
+        throw new Error(
+          "Thiếu reviewApi.updateCOI(coiId, payload). Hãy thêm hàm này trong reviewApi.js."
+        );
+      }
+      await reviewApi.updateCOI(open.id, { status: "Resolved" });
+
+      // 3) accept lại assignment (coi.py của bạn reset về Invited)
+      await reviewApi.acceptAssignment(assignmentId);
+
+      // 4) reload
+      await load();
+    } catch (e) {
+      setErr(e?.response?.data?.detail || e?.message || "Gỡ COI thất bại");
+    } finally {
+      setResolvingByPaperId((p) => ({ ...p, [paperId]: false }));
+    }
+  };
+
   const computed = useMemo(() => {
     const all = items || [];
-    const todo = all.filter((x) => (x.status || "").toLowerCase() === "accepted");
-    const done = all.filter((x) => (x.status || "").toLowerCase() === "completed");
+
+    // NOTE: dùng _ui_status thay vì status gốc
+    const todo = all.filter((x) => (x._ui_status || "").toLowerCase() === "accepted");
+    const done = all.filter((x) => (x._ui_status || "").toLowerCase() === "completed");
     const blocked = all.filter((x) => {
-      const s = (x.status || "").toLowerCase();
+      const s = (x._ui_status || "").toLowerCase();
       return s === "coi" || s === "declined";
     });
 
@@ -148,9 +231,7 @@ export default function MyAssignments() {
               <option>Hạn chót gần nhất</option>
             </select>
             <button className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-primary/90 transition-all">
-              <span className="material-symbols-outlined text-sm font-bold">
-                filter_alt
-              </span>
+              <span className="material-symbols-outlined text-sm font-bold">filter_alt</span>
               Lọc nâng cao
             </button>
           </div>
@@ -194,10 +275,17 @@ export default function MyAssignments() {
                 </tr>
               ) : (
                 computed.current.map((a) => {
-                  const s = (a.status || "").toLowerCase();
+                  const s = (a._ui_status || "").toLowerCase();
                   const isBlocked = s === "coi" || s === "declined";
                   const isDone = s === "completed";
                   const isAccepted = s === "accepted";
+
+                  const blockedByCoi = !!a._blockedByCoi;
+                  const canResolve =
+                    blockedByCoi &&
+                    openCoiPaperIds.has(a.paper_id) &&
+                    !isDone &&
+                    !resolvingByPaperId[a.paper_id];
 
                   return (
                     <tr
@@ -206,7 +294,11 @@ export default function MyAssignments() {
                         isBlocked ? "bg-red-50/30" : ""
                       }`}
                     >
-                      <td className={`px-6 py-4 text-sm font-mono font-bold ${isBlocked ? "text-slate-400" : "text-primary"}`}>
+                      <td
+                        className={`px-6 py-4 text-sm font-mono font-bold ${
+                          isBlocked ? "text-slate-400" : "text-primary"
+                        }`}
+                      >
                         #{a.id}
                       </td>
 
@@ -218,22 +310,53 @@ export default function MyAssignments() {
                           <span className="text-xs text-slate-400 mt-1 italic">
                             (Chưa có API title/track)
                           </span>
+
+                          {blockedByCoi ? (
+                            <span className="mt-1 text-xs font-semibold text-red-600">
+                              COI Open: không thể chấm bài này
+                            </span>
+                          ) : null}
                         </div>
                       </td>
 
-                      <td className="px-6 py-4 text-center">{statusBadge(a.status)}</td>
+                      <td className="px-6 py-4 text-center">{statusBadge(a._ui_status)}</td>
 
                       <td className="px-6 py-4 text-center">
-                        <span className={`text-sm font-medium ${isBlocked ? "text-slate-400 line-through" : "text-slate-600"}`}>
-                          {a.due_date ? new Date(a.due_date).toLocaleDateString("vi-VN") : "—"}
+                        <span
+                          className={`text-sm font-medium ${
+                            isBlocked ? "text-slate-400 line-through" : "text-slate-600"
+                          }`}
+                        >
+                          {a.due_date
+                            ? new Date(a.due_date).toLocaleDateString("vi-VN")
+                            : "—"}
                         </span>
                       </td>
 
                       <td className="px-6 py-4 text-right">
                         {isBlocked ? (
-                          <span className="text-xs text-red-600 font-semibold italic">
-                            {s === "coi" ? "COI" : "Declined"}
-                          </span>
+                          blockedByCoi ? (
+                            <button
+                              onClick={() => handleResolveCoiAndAccept(a.paper_id, a.id)}
+                              disabled={!canResolve}
+                              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                                canResolve
+                                  ? "bg-white border border-red-200 text-red-700 hover:bg-red-50"
+                                  : "bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed"
+                              }`}
+                              title={
+                                canResolve
+                                  ? "Đóng COI (Resolved) và Accept lại assignment"
+                                  : "Không thể gỡ COI lúc này"
+                              }
+                            >
+                              {resolvingByPaperId[a.paper_id] ? "Đang xử lý..." : "Gỡ COI & Accept lại"}
+                            </button>
+                          ) : (
+                            <span className="text-xs text-red-600 font-semibold italic">
+                              {s === "coi" ? "COI" : "Declined"}
+                            </span>
+                          )
                         ) : isDone ? (
                           <button
                             onClick={() => navigate(`/reviewer/assignments/${a.id}`)}
@@ -246,7 +369,7 @@ export default function MyAssignments() {
                             onClick={() => navigate(`/reviewer/review/${a.id}`)}
                             className="bg-primary text-white px-4 py-2 rounded-lg text-xs font-bold hover:shadow-lg hover:shadow-primary/20 transition-all"
                             disabled={!isAccepted}
-                            title={!isAccepted ? "Assignment cần Accepted" : ""}
+                            title={!isAccepted ? "Assignment cần Accepted và không bị COI" : ""}
                           >
                             Bắt đầu chấm điểm
                           </button>
@@ -263,8 +386,8 @@ export default function MyAssignments() {
         {/* Pagination (dummy UI giống mẫu) */}
         <div className="px-6 py-4 bg-slate-50 flex items-center justify-between">
           <p className="text-xs text-slate-500">
-            Hiển thị <span className="font-bold">1-{Math.min(10, computed.current.length)}</span> trên tổng{" "}
-            <span className="font-bold">{computed.current.length}</span>
+            Hiển thị <span className="font-bold">1-{Math.min(10, computed.current.length)}</span>{" "}
+            trên tổng <span className="font-bold">{computed.current.length}</span>
           </p>
           <div className="flex gap-2">
             <button className="size-8 rounded border border-slate-200 flex items-center justify-center text-slate-400 cursor-not-allowed">
@@ -284,12 +407,10 @@ export default function MyAssignments() {
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-4">
         <span className="material-symbols-outlined text-amber-600">info</span>
         <div>
-          <p className="text-sm font-bold text-amber-900 leading-tight">
-            Hướng dẫn chấm điểm
-          </p>
+          <p className="text-sm font-bold text-amber-900 leading-tight">Hướng dẫn chấm điểm</p>
           <p className="text-xs text-amber-800 mt-1">
-            Reviewer vui lòng hoàn thành bản chấm điểm theo đúng tiêu chí. Các bài báo bị chặn (COI)
-            sẽ không thể chấm.
+            Reviewer vui lòng hoàn thành bản chấm điểm theo đúng tiêu chí. Các bài báo bị chặn (COI Open)
+            sẽ không thể chấm. Nếu có nút <strong>Gỡ COI</strong>, bạn có thể đóng COI và Accept lại để chấm.
           </p>
         </div>
       </div>
