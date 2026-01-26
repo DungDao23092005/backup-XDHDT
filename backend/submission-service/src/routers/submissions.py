@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 from typing import List
 import json
 import httpx
 import os
 import shutil
 
-from .. import database, crud, schemas, exceptions
+from .. import database, crud, schemas, exceptions, models
 from ..config import settings
 from ..utils.file_handler import save_paper_file, delete_paper_version_file
 
@@ -17,18 +17,72 @@ router = APIRouter(
     tags=["Submissions"]
 )
 
+# -----------------------------
+# Helpers
+# -----------------------------
+def _normalize_base_url(url: str) -> str:
+    if not url:
+        return ""
+    return url.rstrip("/")
+
+def _notification_endpoint() -> str:
+    """
+    settings.NOTIFICATION_SERVICE_URL trong project đang default là base URL (vd: http://localhost:8001).
+    Nhưng notification-service thực tế nhận POST tại /api/notifications.
+    Hàm này đảm bảo URL cuối cùng luôn trỏ đúng endpoint.
+    """
+    base = _normalize_base_url(settings.NOTIFICATION_SERVICE_URL)
+    if not base:
+        return "/api/notifications"
+    if base.endswith("/api/notifications"):
+        return base
+    return f"{base}/api/notifications"
+
 # --- HÀM GỌI API ---
 def call_notification_service_task(payload: dict):
-    notification_url = settings.NOTIFICATION_SERVICE_URL
+    notification_url = _notification_endpoint()
     try:
         with httpx.Client() as client:
             response = client.post(notification_url, json=payload)
             if response.status_code == 201:
                 print(f" [Submission Service] Notification sent for Paper #{payload['paper_id']}")
             else:
-                print(f" [Submission Service] Failed to send notification: {response.text}")
+                print(f" [Submission Service] Failed to send notification: {response.status_code} - {response.text}")
     except Exception as e:
         print(f" [Submission Service] Connection Error: {str(e)}")
+
+
+# -----------------------------
+# Reviewer/Chair/Admin: Open papers for bidding
+# -----------------------------
+@router.get(
+    "/open-for-bidding",
+    response_model=List[schemas.PaperResponse],
+    dependencies=[Depends(require_roles(["REVIEWER", "CHAIR", "ADMIN"]))],
+)
+def get_open_papers_for_bidding(
+    db: Session = Depends(database.get_db),
+    payload=Depends(get_current_payload),
+):
+    """
+    Danh sách bài mở cho bidding (mặc định: status = SUBMITTED).
+    """
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token missing user_id")
+
+    papers = (
+        db.query(models.Paper)
+        .options(
+            selectinload(models.Paper.authors),
+            selectinload(models.Paper.topics),
+            selectinload(models.Paper.versions),
+        )
+        .filter(models.Paper.status == models.PaperStatus.SUBMITTED)
+        .order_by(models.Paper.submitted_at.desc())
+        .all()
+    )
+    return papers
 
 
 # API nộp bài: AUTHOR/ADMIN
@@ -36,14 +90,14 @@ def call_notification_service_task(payload: dict):
     "/",
     response_model=schemas.PaperResponse,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def submit_paper(
     background_tasks: BackgroundTasks,
     metadata: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     created_paper_id = None
     created_version_number = None
@@ -62,7 +116,7 @@ def submit_paper(
         paper = crud.create_paper(
             db=db,
             paper_data=paper_data,
-            submitter_id=submitter_id
+            submitter_id=submitter_id,
         )
         created_paper_id = paper.id
 
@@ -70,14 +124,14 @@ def submit_paper(
             db=db,
             paper_id=paper.id,
             file_url="TEMP_URL_HOLDER",
-            is_blind_mode=paper.is_blind_mode
+            is_blind_mode=paper.is_blind_mode,
         )
         created_version_number = version.version_number
 
         file_url = save_paper_file(
             paper_id=paper.id,
             version_number=version.version_number,
-            upload_file=file
+            upload_file=file,
         )
         version.file_url = file_url
 
@@ -104,7 +158,7 @@ def submit_paper(
             "paper_id": paper.id,
             "paper_title": paper.title,
             "subject": f"Xác nhận nộp bài: {paper.title}",
-            "body": f"Bài báo #{paper.id} đã được nộp thành công vào hệ thống. Vui lòng chờ phản hồi."
+            "body": f"Bài báo #{paper.id} đã được nộp thành công vào hệ thống. Vui lòng chờ phản hồi.",
         }
 
         background_tasks.add_task(call_notification_service_task, notification_payload)
@@ -119,7 +173,7 @@ def submit_paper(
             try:
                 delete_paper_version_file(
                     paper_id=created_paper_id,
-                    version_number=created_version_number
+                    version_number=created_version_number,
                 )
             except Exception as cleanup_error:
                 print(f" Failed to clean up file: {cleanup_error}")
@@ -131,11 +185,11 @@ def submit_paper(
 @router.get(
     "",
     response_model=List[schemas.PaperResponse],
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def get_my_submissions(
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     submitter_id = payload.get("user_id")
     if not submitter_id:
@@ -148,12 +202,12 @@ def get_my_submissions(
 @router.get(
     "/{paper_id}",
     response_model=schemas.PaperResponse,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def get_submission_detail(
     paper_id: int,
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     submitter_id = payload.get("user_id")
     if not submitter_id:
@@ -173,13 +227,13 @@ def get_submission_detail(
 @router.post(
     "/{paper_id}/authors",
     response_model=schemas.AuthorResponse,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def add_co_author(
     paper_id: int,
     author_data: schemas.AuthorAdd,
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     submitter_id = payload.get("user_id")
     if not submitter_id:
@@ -202,13 +256,13 @@ def add_co_author(
 @router.delete(
     "/{paper_id}/authors/{author_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def remove_co_author(
     paper_id: int,
     author_id: int,
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     submitter_id = payload.get("user_id")
     if not submitter_id:
@@ -229,12 +283,12 @@ def remove_co_author(
 @router.post(
     "/{paper_id}/withdraw",
     response_model=schemas.PaperResponse,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def withdraw_submission(
     paper_id: int,
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     submitter_id = payload.get("user_id")
     if not submitter_id:
@@ -254,13 +308,13 @@ def withdraw_submission(
 @router.put(
     "/{paper_id}",
     response_model=schemas.PaperResponse,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def update_paper_details(
     paper_id: int,
     update_data: schemas.PaperUpdate,
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     submitter_id = payload.get("user_id")
     if not submitter_id:
@@ -280,13 +334,13 @@ def update_paper_details(
 @router.post(
     "/{paper_id}/file",
     response_model=schemas.PaperVersionResponse,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def update_paper_file(
     paper_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     submitter_id = payload.get("user_id")
     if not submitter_id:
@@ -308,7 +362,7 @@ def update_paper_file(
             submitter_id=submitter_id,
             file_path=file_path,
             version_number=next_ver,
-            is_blind_mode=True
+            is_blind_mode=True,
         )
 
     except exceptions.PaperNotFoundError as e:
@@ -323,7 +377,7 @@ def update_paper_file(
 @router.put(
     "/{paper_id}/decision",
     response_model=schemas.PaperResponse,
-    dependencies=[Depends(require_roles(["CHAIR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["CHAIR", "ADMIN"]))],
 )
 def make_decision_on_paper(
     paper_id: int,
@@ -342,13 +396,13 @@ def make_decision_on_paper(
 @router.post(
     "/{paper_id}/camera-ready",
     response_model=schemas.PaperVersionResponse,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))]
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def upload_camera_ready(
     paper_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(database.get_db),
-    payload = Depends(get_current_payload),
+    payload=Depends(get_current_payload),
 ):
     submitter_id = payload.get("user_id")
     if not submitter_id:
