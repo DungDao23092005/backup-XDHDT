@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { submitPaper } from "../../api/submissionApi";
+import conferenceApi from "../../api/conferenceApi";
 
 
 const MAX_MB = 20;
@@ -24,22 +25,137 @@ export default function SubmitPaper() {
     { full_name: "", email: "", organization: "", is_corresponding: true },
   ]);
 
-  const [topics, setTopics] = useState([]); // array of topic_id or strings
+  // topics state sẽ lưu LIST ID dạng string/number đều được, mình normalize qua Number khi submit
+  const [topics, setTopics] = useState([]);
   const [file, setFile] = useState(null);
 
   const [agree, setAgree] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  // ====== NEW: data sources ======
+  const [conferences, setConferences] = useState([]);
+  const [tracks, setTracks] = useState([]);
+  const [topicOptions, setTopicOptions] = useState([]);
+
+  const [loadingConf, setLoadingConf] = useState(false);
+  const [loadingTracks, setLoadingTracks] = useState(false);
+  const [loadingTopics, setLoadingTopics] = useState(false);
+
+
+  // 1) load conferences
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingConf(true);
+        setError("");
+        const data = await conferenceApi.getAllConferences();
+        const arr = Array.isArray(data) ? data : data?.items || [];
+        setConferences(arr);
+      } catch (e) {
+        setError(e?.response?.data?.detail || "Không tải được danh sách hội nghị.");
+      } finally {
+        setLoadingConf(false);
+      }
+    })();
+  }, []);
+
+  // 2) load tracks when conference changes
+  useEffect(() => {
+    if (!conferenceId) {
+      setTracks([]);
+      setTrackId("");
+      setTopicOptions([]);
+      setTopics([]);
+      return;
+    }
+
+    (async () => {
+      try {
+        setLoadingTracks(true);
+        setError("");
+
+        // reset downstream
+        setTrackId("");
+        setTopicOptions([]);
+        setTopics([]);
+
+        const data = await conferenceApi.getTracksByConference(conferenceId);
+        const arr = Array.isArray(data) ? data : data?.items || [];
+        setTracks(arr);
+      } catch (e) {
+        setError(e?.response?.data?.detail || "Không tải được track theo hội nghị.");
+        setTracks([]);
+      } finally {
+        setLoadingTracks(false);
+      }
+    })();
+  }, [conferenceId]);
+
+  // 3) ✅ load topics when track changes
+  useEffect(() => {
+    if (!trackId) {
+      setTopicOptions([]);
+      setTopics([]);
+      return;
+    }
+
+    (async () => {
+      try {
+        setLoadingTopics(true);
+        setError("");
+
+        setTopics([]);
+        const data = await conferenceApi.getTopicsByTrack(trackId); // ✅ /topics/track/{track_id}
+        const arr = Array.isArray(data) ? data : data?.items || [];
+        setTopicOptions(arr);
+      } catch (e) {
+        setError(e?.response?.data?.detail || "Không tải được topics theo track.");
+        setTopicOptions([]);
+      } finally {
+        setLoadingTopics(false);
+      }
+    })();
+  }, [trackId]);
+
+  useEffect(() => {
+  try {
+    const raw = localStorage.getItem("author_submit_draft");
+    if (!raw) return;
+
+    const d = JSON.parse(raw);
+
+    setStep(d.step || 1);
+    setConferenceId(d.conferenceId || "");
+    setTrackId(d.trackId || "");
+    setTitle(d.title || "");
+    setAbstract(d.abstract || "");
+    setBlindMode(!!d.blindMode);
+    setKeywords(Array.isArray(d.keywords) ? d.keywords : []);
+    setAuthors(Array.isArray(d.authors) && d.authors.length ? d.authors : [{ full_name: "", email: "", organization: "", is_corresponding: true }]);
+    setTopics(Array.isArray(d.topics) ? d.topics : []);
+  } catch {
+  }
+}, []);
+
+
   const progressPct = useMemo(() => (step - 1) / 3, [step]);
 
   const canNext = useMemo(() => {
     if (step === 1) {
-      return conferenceId && trackId && title.trim() && abstract.trim() && keywords.length > 0;
+      return (
+        conferenceId &&
+        trackId &&
+        title.trim() &&
+        abstract.trim() &&
+        keywords.length > 0
+      );
     }
     if (step === 2) {
-      const ok = authors.length > 0 && authors.every(a => a.full_name.trim() && a.email.trim());
-      const hasCorresponding = authors.some(a => a.is_corresponding);
+      const ok =
+        authors.length > 0 &&
+        authors.every((a) => a.full_name.trim() && a.email.trim());
+      const hasCorresponding = authors.some((a) => a.is_corresponding);
       return ok && hasCorresponding;
     }
     if (step === 3) return topics.length >= 1;
@@ -50,28 +166,33 @@ export default function SubmitPaper() {
   const addKeyword = () => {
     const v = kwInput.trim();
     if (!v) return;
-    if (keywords.map(k => k.toLowerCase()).includes(v.toLowerCase())) return;
+    if (keywords.map((k) => k.toLowerCase()).includes(v.toLowerCase())) return;
     setKeywords([...keywords, v]);
     setKwInput("");
   };
 
-  const removeKeyword = (k) => setKeywords(keywords.filter(x => x !== k));
+  const removeKeyword = (k) => setKeywords(keywords.filter((x) => x !== k));
 
   const addAuthorRow = () => {
-    setAuthors([...authors, { full_name: "", email: "", organization: "", is_corresponding: false }]);
+    setAuthors([
+      ...authors,
+      { full_name: "", email: "", organization: "", is_corresponding: false },
+    ]);
   };
 
   const updateAuthor = (idx, patch) => {
-    setAuthors(prev => prev.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
+    setAuthors((prev) => prev.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
   };
 
   const setCorresponding = (idx) => {
-    setAuthors(prev => prev.map((a, i) => ({ ...a, is_corresponding: i === idx })));
+    setAuthors((prev) =>
+      prev.map((a, i) => ({ ...a, is_corresponding: i === idx }))
+    );
   };
 
   const removeAuthor = (idx) => {
     if (idx === 0) return; // giữ tác giả chính
-    setAuthors(prev => prev.filter((_, i) => i !== idx));
+    setAuthors((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const onPickFile = (f) => {
@@ -96,17 +217,16 @@ export default function SubmitPaper() {
         abstract,
         keywords,
         is_blind_mode: blindMode,
-        authors: authors.map(a => ({
+        authors: authors.map((a) => ({
           full_name: a.full_name,
           email: a.email,
           organization: a.organization,
           is_corresponding: !!a.is_corresponding,
         })),
-        topics: topics.map(t => ({ topic_id: Number(t) })), // nếu backend bạn cần dạng này
+        topics: topics.map((t) => ({ topic_id: Number(t) })),
       };
 
       await submitPaper({ metadata, file });
-
       navigate("/author/submissions");
     } catch (e) {
       setError(e?.response?.data?.detail || "Nộp bài thất bại. Vui lòng thử lại.");
@@ -163,37 +283,58 @@ export default function SubmitPaper() {
 
               <div className="p-6 grid gap-6">
                 <div className="grid md:grid-cols-2 gap-6">
+                  {/* Conference */}
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-semibold text-slate-700">
                       Hội nghị <span className="text-rose-500">*</span>
                     </label>
-                    <input
+
+                    <select
                       className="w-full rounded-lg border-slate-300 bg-white focus:border-rose-500 focus:ring-rose-500"
-                      placeholder="VD: 1"
                       value={conferenceId}
                       onChange={(e) => setConferenceId(e.target.value)}
-                    />
-                    <div className="text-xs text-slate-400">
-                      (Tạm thời nhập ID. Sau bạn nối API conferences để select)
-                    </div>
+                      disabled={loadingConf}
+                    >
+                      <option value="">{loadingConf ? "Đang tải hội nghị..." : "Chọn hội nghị..."}</option>
+                      {conferences.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name || c.title || `Conference #${c.id}`}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
+                  {/* Track */}
                   <div className="flex flex-col gap-2">
                     <label className="text-sm font-semibold text-slate-700">
                       Track <span className="text-rose-500">*</span>
                     </label>
-                    <input
+
+                    <select
                       className="w-full rounded-lg border-slate-300 bg-white focus:border-rose-500 focus:ring-rose-500"
-                      placeholder="VD: 2"
                       value={trackId}
                       onChange={(e) => setTrackId(e.target.value)}
-                    />
-                    <div className="text-xs text-slate-400">
-                      (Bạn có endpoint /tracks, sau mình đổi thành select)
-                    </div>
+                      disabled={!conferenceId || loadingTracks}
+                    >
+                      <option value="">
+                        {!conferenceId
+                          ? "Chọn hội nghị trước..."
+                          : loadingTracks
+                          ? "Đang tải track..."
+                          : "Chọn track..."}
+                      </option>
+                      {tracks.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name || t.title || `Track #${t.id}`}
+                        </option>
+                      ))}
+                    </select>
                   </div>
+
+
                 </div>
 
+                {/* Title */}
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-semibold text-slate-700">
                     Tiêu đề <span className="text-rose-500">*</span>
@@ -206,6 +347,7 @@ export default function SubmitPaper() {
                   />
                 </div>
 
+                {/* Abstract */}
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-semibold text-slate-700 flex justify-between">
                     <span>
@@ -222,6 +364,7 @@ export default function SubmitPaper() {
                   />
                 </div>
 
+                {/* Keywords */}
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-semibold text-slate-700">
                     Từ khóa <span className="text-rose-500">*</span>
@@ -261,6 +404,7 @@ export default function SubmitPaper() {
                   </div>
                 </div>
 
+                {/* Blind mode */}
                 <label className="flex items-start gap-3 p-4 bg-slate-50 rounded-lg border border-slate-200">
                   <input
                     className="w-5 h-5 mt-0.5 rounded border-slate-300 text-rose-500 focus:ring-rose-500"
@@ -279,92 +423,85 @@ export default function SubmitPaper() {
             </section>
           )}
 
+          {/* Step 2 giữ nguyên như bạn */}
           {step === 2 && (
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-                <h3 className="font-bold text-lg text-slate-800">2. Tác giả & Đồng tác giả</h3>
+              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
+                <h3 className="font-bold text-lg text-slate-800">2. Tác giả</h3>
+                <p className="text-sm text-slate-500 mt-1">Nhập ít nhất 1 tác giả. Chọn 1 tác giả liên hệ.</p>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {authors.map((a, idx) => (
+                  <div key={idx} className="p-4 rounded-xl border border-slate-200 space-y-3">
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-sm font-semibold text-slate-700">Họ tên *</label>
+                        <input
+                          className="w-full rounded-lg border-slate-300 focus:border-rose-500 focus:ring-rose-500"
+                          value={a.full_name}
+                          onChange={(e) => updateAuthor(idx, { full_name: e.target.value })}
+                          placeholder="Nguyễn Văn A"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-semibold text-slate-700">Email *</label>
+                        <input
+                          className="w-full rounded-lg border-slate-300 focus:border-rose-500 focus:ring-rose-500"
+                          value={a.email}
+                          onChange={(e) => updateAuthor(idx, { email: e.target.value })}
+                          placeholder="a@email.com"
+                        />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="text-sm font-semibold text-slate-700">Tổ chức</label>
+                        <input
+                          className="w-full rounded-lg border-slate-300 focus:border-rose-500 focus:ring-rose-500"
+                          value={a.organization}
+                          onChange={(e) => updateAuthor(idx, { organization: e.target.value })}
+                          placeholder="Trường/Viện..."
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                        <input
+                          type="radio"
+                          name="corresponding"
+                          checked={!!a.is_corresponding}
+                          onChange={() => setCorresponding(idx)}
+                        />
+                        Tác giả liên hệ
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() => removeAuthor(idx)}
+                        disabled={idx === 0}
+                        className={`px-3 py-2 rounded-lg font-bold ${
+                          idx === 0 ? "bg-slate-100 text-slate-400 cursor-not-allowed" : "bg-rose-50 text-rose-700 hover:bg-rose-100"
+                        }`}
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
                 <button
+                  type="button"
                   onClick={addAuthorRow}
-                  className="px-4 py-2 rounded-lg border border-rose-300 text-rose-700 font-bold hover:bg-rose-50"
+                  className="px-4 py-2 rounded-lg bg-rose-500 text-white font-bold"
                 >
                   + Thêm tác giả
                 </button>
               </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-slate-50">
-                    <tr className="text-xs uppercase text-slate-500 font-bold">
-                      <th className="px-6 py-3 w-12">#</th>
-                      <th className="px-6 py-3">Họ và tên</th>
-                      <th className="px-6 py-3">Email</th>
-                      <th className="px-6 py-3">Tổ chức</th>
-                      <th className="px-6 py-3 text-center">Liên hệ</th>
-                      <th className="px-6 py-3 text-right">Xóa</th>
-                    </tr>
-                  </thead>
-
-                  <tbody className="divide-y divide-slate-100">
-                    {authors.map((a, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/60">
-                        <td className="px-6 py-4 text-slate-400 font-semibold">{idx + 1}</td>
-                        <td className="px-6 py-4">
-                          <input
-                            className="w-full rounded-lg border-slate-300 focus:border-rose-500 focus:ring-rose-500"
-                            value={a.full_name}
-                            onChange={(e) => updateAuthor(idx, { full_name: e.target.value })}
-                            placeholder="Họ tên"
-                          />
-                        </td>
-                        <td className="px-6 py-4">
-                          <input
-                            className="w-full rounded-lg border-slate-300 focus:border-rose-500 focus:ring-rose-500"
-                            value={a.email}
-                            onChange={(e) => updateAuthor(idx, { email: e.target.value })}
-                            placeholder="Email"
-                          />
-                        </td>
-                        <td className="px-6 py-4">
-                          <input
-                            className="w-full rounded-lg border-slate-300 focus:border-rose-500 focus:ring-rose-500"
-                            value={a.organization}
-                            onChange={(e) => updateAuthor(idx, { organization: e.target.value })}
-                            placeholder="Tổ chức"
-                          />
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <input
-                            type="radio"
-                            name="corresponding"
-                            checked={!!a.is_corresponding}
-                            onChange={() => setCorresponding(idx)}
-                            className="w-5 h-5 text-rose-500 focus:ring-rose-500"
-                          />
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <button
-                            disabled={idx === 0}
-                            onClick={() => removeAuthor(idx)}
-                            className={`px-3 py-2 rounded-lg ${
-                              idx === 0
-                                ? "text-slate-300 cursor-not-allowed"
-                                : "text-rose-600 hover:bg-rose-50"
-                            }`}
-                          >
-                            🗑
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="px-6 py-4 bg-rose-50 border-t border-rose-100 text-xs text-rose-800">
-                <b>Lưu ý:</b> Tác giả liên hệ sẽ nhận thông báo phản biện và trao đổi với Ban tổ chức.
-              </div>
             </section>
           )}
+
 
           {step === 3 && (
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
@@ -373,51 +510,70 @@ export default function SubmitPaper() {
                 <p className="text-sm text-slate-500 mt-1">Chọn ít nhất 01 chủ đề.</p>
               </div>
 
-              <div className="p-6 grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {[
-                  { id: 1, name: "Artificial Intelligence" },
-                  { id: 2, name: "Machine Learning" },
-                  { id: 3, name: "Computer Vision" },
-                  { id: 4, name: "Big Data Analytics" },
-                  { id: 5, name: "Smart City Applications" },
-                ].map((t) => {
-                  const checked = topics.includes(String(t.id));
-                  return (
-                    <label
-                      key={t.id}
-                      className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition ${
-                        checked
-                          ? "border-rose-400 bg-rose-50"
-                          : "border-slate-200 hover:border-rose-200 hover:bg-slate-50"
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="w-5 h-5 text-rose-500 focus:ring-rose-500"
-                        checked={checked}
-                        onChange={(e) => {
-                          if (e.target.checked) setTopics([...topics, String(t.id)]);
-                          else setTopics(topics.filter((x) => x !== String(t.id)));
-                        }}
-                      />
-                      <span className={`text-sm ${checked ? "font-bold text-rose-700" : "text-slate-700"}`}>
-                        {t.name}
-                      </span>
-                    </label>
-                  );
-                })}
+              <div className="p-6">
+                {!trackId ? (
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-600">
+                    Bạn chưa chọn <b>Track</b>. Quay lại bước 1 để chọn Track.
+                  </div>
+                ) : loadingTopics ? (
+                  <div className="text-slate-500 font-semibold">Đang tải Topics...</div>
+                ) : topicOptions.length === 0 ? (
+                  <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-600">
+                    Track này chưa có Topics.
+                  </div>
+                ) : (
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {topicOptions.map((t) => {
+                      const checked = topics.includes(String(t.id));
+                      return (
+                        <label
+                          key={t.id}
+                          className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition ${
+                            checked
+                              ? "border-rose-400 bg-rose-50"
+                              : "border-slate-200 hover:border-rose-200 hover:bg-slate-50"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="w-5 h-5 text-rose-500 focus:ring-rose-500"
+                            checked={checked}
+                            onChange={(e) => {
+                              if (e.target.checked) setTopics([...topics, String(t.id)]);
+                              else setTopics(topics.filter((x) => x !== String(t.id)));
+                            }}
+                          />
+                          <span className={`text-sm ${checked ? "font-bold text-rose-700" : "text-slate-700"}`}>
+                            {t.name || t.title || `Topic #${t.id}`}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </section>
           )}
 
+          {/* Step 4 giữ nguyên như bạn */}
           {step === 4 && (
             <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-                <h3 className="font-bold text-lg text-slate-800">4. Tải lên tập tin</h3>
+              <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                <div>
+                  <h3 className="font-bold text-lg text-slate-800">4. Tải lên tập tin</h3>
+                  <p className="text-sm text-slate-500 mt-1">
+                    Chỉ chấp nhận PDF. Tối đa <b>{MAX_MB}MB</b>.
+                  </p>
+                </div>
+
+                <span className="text-xs font-semibold px-3 py-1 rounded-full border border-rose-200 bg-rose-50 text-rose-700">
+                  Bước cuối
+                </span>
               </div>
 
-              <div className="p-6 space-y-4">
-                <div className="border-2 border-dashed border-rose-200 rounded-2xl bg-rose-50/40 p-8 text-center">
+              <div className="p-6 space-y-5">
+                {/* Dropzone */}
+                <div className="border-2 border-dashed border-rose-200 rounded-2xl bg-rose-50/40 p-8 text-center hover:bg-rose-50 transition">
                   <input
                     type="file"
                     accept="application/pdf,.pdf"
@@ -425,34 +581,58 @@ export default function SubmitPaper() {
                     id="pdf"
                     onChange={(e) => onPickFile(e.target.files?.[0])}
                   />
-                  <label htmlFor="pdf" className="cursor-pointer">
-                    <div className="text-3xl">☁️</div>
-                    <div className="text-lg font-bold text-slate-800 mt-2">Kéo thả file PDF hoặc bấm để chọn</div>
-                    <div className="text-sm text-slate-500 mt-1">Tối đa {MAX_MB}MB</div>
-                    <div className="mt-4 inline-flex px-5 py-2 rounded-xl bg-white border border-slate-200 font-bold text-rose-600">
+
+                  <label htmlFor="pdf" className="cursor-pointer block">
+                    <div className="mx-auto w-16 h-16 rounded-full bg-white border border-slate-200 flex items-center justify-center shadow-sm">
+                      <span className="text-2xl">☁️</span>
+                    </div>
+
+                    <div className="text-lg font-black text-slate-800 mt-3">
+                      Kéo thả file PDF vào đây
+                    </div>
+                    <div className="text-sm text-slate-500 mt-1">
+                      hoặc bấm để duyệt file từ máy tính
+                    </div>
+
+                    <div className="mt-4 inline-flex px-5 py-2 rounded-xl bg-white border border-slate-200 font-bold text-rose-600 hover:bg-rose-50">
                       Chọn tập tin
+                    </div>
+
+                    <div className="text-xs text-slate-400 mt-3">
+                      Bạn có thể thay file bất cứ lúc nào trước khi gửi.
                     </div>
                   </label>
                 </div>
 
+                {/* File Preview */}
                 {file && (
-                  <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-slate-900 break-all">{file.name}</div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        {(file.size / (1024 * 1024)).toFixed(2)} MB
+                  <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-rose-50 rounded-xl flex items-center justify-center border border-rose-100">
+                        <span className="text-rose-600 text-xl">PDF</span>
+                      </div>
+
+                      <div className="flex flex-col">
+                        <div className="font-bold text-slate-900 break-all">{file.name}</div>
+                        <div className="text-xs text-slate-500 mt-1 flex items-center gap-2">
+                          <span>{(file.size / (1024 * 1024)).toFixed(2)} MB</span>
+                          <span className="w-1 h-1 rounded-full bg-slate-300" />
+                          <span className="text-green-600 font-bold">Sẵn sàng</span>
+                        </div>
                       </div>
                     </div>
+
                     <button
                       onClick={() => setFile(null)}
-                      className="px-3 py-2 rounded-lg text-rose-600 hover:bg-rose-50 font-bold"
+                      className="px-3 py-2 rounded-xl text-rose-600 hover:bg-rose-50 font-black"
                     >
                       Xóa
                     </button>
                   </div>
                 )}
 
-                <label className="flex items-start gap-3 p-4 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                {/* Agreement */}
+                <label className="flex items-start gap-3 p-4 rounded-2xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
                   <input
                     type="checkbox"
                     className="mt-1 w-5 h-5 text-rose-500 focus:ring-rose-500"
@@ -460,33 +640,30 @@ export default function SubmitPaper() {
                     onChange={(e) => setAgree(e.target.checked)}
                   />
                   <div className="text-sm text-slate-600">
-                    <div className="font-bold text-slate-900 mb-1">Cam kết tính nguyên bản và sở hữu trí tuệ</div>
-                    Tôi cam kết bài báo là công trình gốc, chưa xuất bản và không đang xét duyệt nơi khác.
+                    <div className="font-black text-slate-900 mb-1">
+                      Cam kết tính nguyên bản và sở hữu trí tuệ
+                    </div>
+                    Tôi cam kết rằng bài báo là công trình nghiên cứu gốc, chưa từng được xuất bản và
+                    không đang được xem xét tại hội nghị/tạp chí khác. Tôi chịu hoàn toàn trách nhiệm
+                    về nội dung bài báo.
                   </div>
                 </label>
               </div>
             </section>
           )}
+
         </div>
       </div>
 
-      {/* Bottom bar */}
+      {/* Bottom bar giữ nguyên như bạn */}
       <div className="fixed bottom-0 left-0 right-0 h-20 bg-white border-t border-slate-200 flex items-center justify-between px-6 lg:px-24 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)]">
         <button
           onClick={() => {
-            const draft = {
-              step,
-              conferenceId,
-              trackId,
-              title,
-              abstract,
-              blindMode,
-              keywords,
-              authors,
-              topics,
-            };
+            const draft = { step, conferenceId, trackId, title, abstract, blindMode, keywords, authors, topics };
             localStorage.setItem("author_submit_draft", JSON.stringify(draft));
+            alert("Đã lưu bản nháp!");
           }}
+
           className="px-6 py-2.5 rounded-lg border border-slate-300 text-slate-600 font-bold hover:bg-slate-50"
         >
           💾 Lưu bản nháp

@@ -1,330 +1,212 @@
 import React, { useMemo } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation, matchPath, Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../utils/constants";
 
-// --- CẤU HÌNH STYLE ---
+// --- STYLE ---
 const linkBase =
   "flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-colors cursor-pointer";
 const linkInactive =
   "text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900";
-// Active màu đỏ (Rose) cho Author/Admin
 const linkActive =
   "bg-rose-50 text-rose-700 border border-rose-100 font-bold shadow-sm";
 
-const Sidebar = () => {
+// Header hiển thị Role hiện tại (Admin / Author / Reviewer)
+function RoleHeader({ icon, title }) {
+  return (
+    <div className="flex items-center gap-3 px-2 pt-2 mb-4">
+      <div className="size-10 bg-rose-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-rose-200">
+        <span className="material-symbols-outlined text-xl">{icon}</span>
+      </div>
+      <div>
+        <span className="block text-xs font-bold text-gray-400 uppercase tracking-wider">Portal</span>
+        <span className="text-lg font-black text-gray-900 dark:text-white leading-none">{title}</span>
+      </div>
+    </div>
+  );
+}
+
+// Khung Sidebar
+function SidebarShell({ children }) {
+  return (
+    <aside className="w-72 bg-white dark:bg-gray-900 border-r border-slate-200 dark:border-gray-800 hidden lg:flex flex-col sticky top-16 h-[calc(100vh-64px)] overflow-y-auto">
+      <div className="p-4 flex flex-col gap-2 h-full">{children}</div>
+    </aside>
+  );
+}
+
+// Menu Nav Component
+function MenuNav({ items }) {
+  const location = useLocation();
+
+  const isItemActive = (item) => {
+    // Logic active chính xác hơn: so sánh prefix
+    if (item.exact) return location.pathname === item.to;
+    return location.pathname.startsWith(item.to);
+  };
+
+  return (
+    <nav className="flex flex-col gap-1 flex-1 overflow-y-auto custom-scrollbar">
+      {items.map((item, index) => {
+        const active = isItemActive(item);
+        return (
+          <NavLink
+            key={index}
+            to={item.to}
+            end={item.exact}
+            className={`${linkBase} ${active ? linkActive : linkInactive}`}
+          >
+            <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
+            <span>{item.label}</span>
+          </NavLink>
+        );
+      })}
+    </nav>
+  );
+}
+
+// Nút chuyển đổi Role (Hiển thị nếu user có quyền khác ngoài quyền hiện tại)
+function RoleSwitcher({ currentArea, roles }) {
+  // Logic: Nếu đang ở Admin mà user có quyền Author -> Hiện nút "Về trang Tác giả"
+  // Đây là ví dụ đơn giản, bạn có thể custom thêm
+  
+  if (currentArea === "ADMIN" && roles.includes(ROLES.AUTHOR)) {
+    return (
+      <div className="mb-2 px-4 py-2 bg-slate-50 rounded-lg border border-slate-100">
+        <p className="text-xs text-slate-500 mb-1">Chuyển không gian:</p>
+        <Link to="/author" className="text-sm font-bold text-blue-600 hover:underline flex items-center gap-1">
+          <span className="material-symbols-outlined text-sm">arrow_forward</span>
+          Giao diện Tác giả
+        </Link>
+      </div>
+    );
+  }
+
+  if (currentArea === "AUTHOR" && roles.includes(ROLES.ADMIN)) {
+    return (
+      <div className="mb-2 px-4 py-2 bg-indigo-50 rounded-lg border border-indigo-100">
+        <p className="text-xs text-indigo-500 mb-1">Quyền quản trị:</p>
+        <Link to="/admin" className="text-sm font-bold text-indigo-700 hover:underline flex items-center gap-1">
+          <span className="material-symbols-outlined text-sm">admin_panel_settings</span>
+          Vào trang Admin
+        </Link>
+      </div>
+    );
+  }
+
+  return null;
+}
+
+export default function Sidebar() {
   const { user, logout } = useAuth();
   const location = useLocation();
 
   const roles = useMemo(() => {
     return Array.isArray(user?.roles)
-      ? user.roles.map((r) => String(r).toUpperCase())
+      ? user.roles.map((r) => String(r.role_name || r).toUpperCase()) // Fix: check structure role object or string
       : [];
   }, [user?.roles]);
 
-  const hasRole = (role) => roles.includes(String(role).toUpperCase());
+  const hasRole = (role) => roles.includes(role);
 
-  const getInitials = (name) => (name || "U").charAt(0).toUpperCase();
-
+  // Xác định khu vực hiện tại dựa trên URL
   const isAuthorArea = location.pathname.startsWith("/author");
+  const isChairArea = location.pathname.startsWith("/chair");
   const isAdminArea = location.pathname.startsWith("/admin");
   const isReviewerArea = location.pathname.startsWith("/reviewer");
 
-  // =========================
-  // 1) SIDEBAR CHO AUTHOR
-  // =========================
-  if (hasRole(ROLES.AUTHOR) && isAuthorArea) {
-    const authorMenu = [
-      { to: "/author", label: "Trang chủ", icon: "home" },
-      { to: "/author/submissions", label: "Bài báo của tôi", icon: "article" },
-      { to: "/author/submit", label: "Nộp bài mới", icon: "cloud_upload" },
-      { to: "/author/profile", label: "Hồ sơ cá nhân", icon: "person" },
-      { to: "/author/settings", label: "Cài đặt", icon: "settings" },
-    ];
-
-    return (
-      <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 h-screen hidden lg:flex flex-col sticky top-0 z-20">
-        <div className="p-4 flex flex-col gap-6 h-full">
-          <div className="flex items-center gap-3 px-2 pt-2">
-            <div className="size-8 bg-rose-600 rounded-lg flex items-center justify-center text-white shadow-md shadow-rose-200">
-              <span className="material-symbols-outlined text-xl">school</span>
-            </div>
-            <span className="text-lg font-black text-gray-900">Author Portal</span>
-          </div>
-
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
-            <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center font-black text-rose-700 border border-rose-200">
-              {getInitials(user?.full_name || user?.email)}
-            </div>
-            <div className="flex flex-col overflow-hidden">
-              <h1 className="text-gray-900 text-sm font-bold truncate">
-                {user?.full_name || "Tác giả"}
-              </h1>
-              <p className="text-gray-500 text-xs font-medium truncate">{user?.email}</p>
-            </div>
-          </div>
-
-          <nav className="flex flex-col gap-1 flex-1 overflow-y-auto custom-scrollbar">
-            {authorMenu.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/author"}
-                className={({ isActive }) =>
-                  `${linkBase} ${isActive ? linkActive : linkInactive}`
-                }
-              >
-                <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
-            <div className="my-2 border-t border-gray-100 mx-2" />
-            <NavLink
-              to="/"
-              className={
-                linkInactive +
-                " flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium"
-              }
-            >
-              <span className="material-symbols-outlined text-[20px]">arrow_back</span>
-              <span>Về trang chính</span>
-            </NavLink>
-          </nav>
-
-          <div className="mt-auto">
-            <button
-              onClick={logout}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-rose-600 hover:bg-rose-50 font-bold transition-colors"
-            >
-              <span className="material-symbols-outlined">logout</span>
-              <span>Đăng xuất</span>
-            </button>
-          </div>
-        </div>
-      </aside>
-    );
-  }
+  let menuItems = [];
+  let portalTitle = "Trang chủ";
+  let portalIcon = "home";
+  let currentArea = "HOME";
 
   // =========================
-  // 2) SIDEBAR CHO ADMIN
+  // 1. ADMIN AREA
   // =========================
   if (hasRole(ROLES.ADMIN) && isAdminArea) {
-    const adminMenu = [
-      { to: "/admin", label: "Tổng quan hệ thống", icon: "grid_view" },
-      { to: "/admin/conferences", label: "Quản lý Hội nghị", icon: "calendar_month" },
+    currentArea = "ADMIN";
+    portalTitle = "Quản trị viên";
+    portalIcon = "admin_panel_settings";
+    menuItems = [
+      { to: "/admin/dashboard", label: "Tổng quan", icon: "grid_view", exact: true },
       { to: "/admin/users", label: "Quản lý Người dùng", icon: "group" },
+      { to: "/admin/conferences", label: "Quản lý Hội nghị", icon: "calendar_month" },
       { to: "/admin/settings", label: "Cấu hình hệ thống", icon: "settings" },
       { to: "/admin/audit", label: "Nhật ký hoạt động", icon: "history" },
     ];
-
-    return (
-      <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 h-screen hidden lg:flex flex-col sticky top-0 z-20">
-        <div className="p-4 flex flex-col gap-6 h-full">
-          <div className="flex items-center gap-3 px-2 pt-2">
-            <div className="size-8 bg-rose-600 rounded-lg flex items-center justify-center text-white shadow-md shadow-rose-200">
-              <span className="material-symbols-outlined text-xl">admin_panel_settings</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-black text-gray-900 leading-none">UTH-ConfMS</h1>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pt-1">
-                Administrator
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
-            <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center font-black text-rose-700 border border-rose-200">
-              {getInitials(user?.full_name || "Admin")}
-            </div>
-            <div className="flex flex-col overflow-hidden">
-              <h1 className="text-gray-900 text-sm font-bold truncate">
-                {user?.full_name || "Admin"}
-              </h1>
-              <p className="text-gray-500 text-xs font-medium truncate">Quản trị viên</p>
-            </div>
-          </div>
-
-          <nav className="flex flex-col gap-1 flex-1 overflow-y-auto custom-scrollbar">
-            {adminMenu.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/admin"}
-                className={({ isActive }) =>
-                  `${linkBase} ${isActive ? linkActive : linkInactive}`
-                }
-              >
-                <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
-            <div className="my-2 border-t border-gray-100 mx-2" />
-            <NavLink
-              to="/"
-              className={
-                linkInactive +
-                " flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium"
-              }
-            >
-              <span className="material-symbols-outlined text-[20px]">arrow_back</span>
-              <span>Về trang chính</span>
-            </NavLink>
-          </nav>
-
-          <div className="mt-auto">
-            <button
-              onClick={logout}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-rose-600 hover:bg-rose-50 font-bold transition-colors"
-            >
-              <span className="material-symbols-outlined">logout</span>
-              <span>Đăng xuất</span>
-            </button>
-          </div>
-        </div>
-      </aside>
-    );
   }
-
   // =========================
-  // 3) SIDEBAR CHO REVIEWER (✅ ĐÃ CẬP NHẬT THÊM BIDDING)
+  // 2. AUTHOR AREA
   // =========================
-  if ((hasRole(ROLES.REVIEWER) || hasRole(ROLES.ADMIN)) && isReviewerArea) {
-    const reviewerMenu = [
-      { to: "/reviewer", label: "Tổng quan", icon: "dashboard" },
-      // --- THÊM MỤC BIDDING ---
-      { to: "/reviewer/bidding", label: "Bidding (Chọn bài)", icon: "pan_tool" }, 
-      { to: "/reviewer/assignments", label: "Bài báo chấm điểm", icon: "description" },
-      { to: "/reviewer/coi", label: "Khai báo COI", icon: "gavel" },
+  else if (hasRole(ROLES.AUTHOR) && isAuthorArea) {
+    currentArea = "AUTHOR";
+    portalTitle = "Tác giả";
+    portalIcon = "school";
+    menuItems = [
+      { to: "/author", label: "Dashboard", icon: "home", exact: true },
+      { to: "/author/submissions", label: "Bài nộp của tôi", icon: "article" },
+      { to: "/author/submissions/new", label: "Nộp bài mới", icon: "cloud_upload" },
+      { to: "/author/notifications", label: "Thông báo", icon: "notifications" },
+      { to: "/author/settings", label: "Cài đặt tài khoản", icon: "manage_accounts" },
     ];
-
-    return (
-      <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 h-screen hidden lg:flex flex-col sticky top-0 z-20">
-        <div className="p-4 flex flex-col gap-6 h-full">
-          <div className="flex items-center gap-3 px-2 pt-2">
-            <div className="size-8 bg-primary rounded-lg flex items-center justify-center text-white shadow-md shadow-blue-200">
-              <span className="material-symbols-outlined text-xl">school</span>
-            </div>
-            <div>
-              <h1 className="text-lg font-black text-gray-900 leading-none">UTH-ConfMS</h1>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pt-1">
-                Reviewer
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
-            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-black text-slate-700 border border-slate-300">
-              {getInitials(user?.full_name || user?.email)}
-            </div>
-            <div className="flex flex-col overflow-hidden">
-              <h1 className="text-gray-900 text-sm font-bold truncate">
-                {user?.full_name || user?.name || "Reviewer"}
-              </h1>
-              <p className="text-gray-500 text-xs font-medium truncate">{user?.email}</p>
-            </div>
-          </div>
-
-          <nav className="flex flex-col gap-1 flex-1 overflow-y-auto custom-scrollbar">
-            {reviewerMenu.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === "/reviewer"}
-                className={({ isActive }) =>
-                  `${linkBase} ${isActive ? "bg-primary/10 text-primary font-bold" : linkInactive}`
-                }
-              >
-                <span className="material-symbols-outlined text-[20px]">{item.icon}</span>
-                <span>{item.label}</span>
-              </NavLink>
-            ))}
-            <div className="my-2 border-t border-gray-100 mx-2" />
-            <NavLink
-              to="/"
-              className={
-                linkInactive +
-                " flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium"
-              }
-            >
-              <span className="material-symbols-outlined text-[20px]">arrow_back</span>
-              <span>Về trang chính</span>
-            </NavLink>
-          </nav>
-
-          <div className="mt-auto">
-            <button
-              onClick={logout}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-rose-600 hover:bg-rose-50 font-bold transition-colors"
-            >
-              <span className="material-symbols-outlined">logout</span>
-              <span>Đăng xuất</span>
-            </button>
-          </div>
-        </div>
-      </aside>
-    );
   }
-
   // =========================
-  // 4) SIDEBAR CHUNG (fallback)
+  // 3. REVIEWER AREA
   // =========================
-  const menu = [
-    { to: "/", label: "Trang chủ", icon: "home" },
-    ...(hasRole(ROLES.AUTHOR) ? [{ to: "/author", label: "Khu vực Tác giả", icon: "edit_document" }] : []),
-    ...(hasRole(ROLES.REVIEWER) || hasRole(ROLES.ADMIN)
-      ? [{ to: "/reviewer", label: "Reviewer Dashboard", icon: "rate_review" }]
-      : []),
-    ...(hasRole(ROLES.CHAIR) ? [{ to: "/chair", label: "Chair Dashboard", icon: "gavel" }] : []),
-    ...(hasRole(ROLES.ADMIN) ? [{ to: "/admin", label: "Admin Dashboard", icon: "dashboard" }] : []),
-  ];
+  else if ((hasRole(ROLES.REVIEWER) || hasRole(ROLES.ADMIN)) && isReviewerArea) {
+    currentArea = "REVIEWER";
+    portalTitle = "Phản biện";
+    portalIcon = "rate_review";
+    menuItems = [
+      { to: "/reviewer", label: "Tổng quan", icon: "dashboard", exact: true },
+      { to: "/reviewer/bidding", label: "Chọn bài (Bidding)", icon: "pan_tool" },
+      { to: "/reviewer/assignments", label: "Bài được phân công", icon: "assignment" },
+      { to: "/reviewer/coi", label: "Khai báo mâu thuẫn", icon: "gavel" },
+    ];
+  }
+  // =========================
+  // 4. CHAIR AREA
+  // =========================
+  else if (hasRole(ROLES.CHAIR) && isChairArea) {
+    currentArea = "CHAIR";
+    portalTitle = "Trưởng ban";
+    portalIcon = "gavel";
+    menuItems = [
+      { to: "/chair", label: "Tổng quan", icon: "space_dashboard", exact: true },
+      { to: "/chair/papers", label: "Quản lý bài nộp", icon: "article" },
+      { to: "/chair/review-assign", label: "Phân công phản biện", icon: "assignment_ind" },
+    ];
+  }
+  // =========================
+  // 5. FALLBACK (Home)
+  // =========================
+  else {
+    menuItems = [
+      { to: "/", label: "Trang chủ", icon: "home", exact: true },
+    ];
+    if (hasRole(ROLES.ADMIN)) menuItems.push({ to: "/admin", label: "Vào trang Admin", icon: "admin_panel_settings" });
+    if (hasRole(ROLES.AUTHOR)) menuItems.push({ to: "/author", label: "Vào trang Tác giả", icon: "school" });
+    if (hasRole(ROLES.REVIEWER)) menuItems.push({ to: "/reviewer", label: "Vào trang Phản biện", icon: "rate_review" });
+  }
 
   return (
-    <aside className="w-72 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 h-screen flex flex-col sticky top-0 z-20">
-      <div className="p-6 flex items-center gap-3">
-        <div className="size-10 bg-rose-600 rounded-lg flex items-center justify-center text-white shadow-lg shadow-rose-200">
-          <span className="material-symbols-outlined text-2xl">account_balance</span>
-        </div>
-        <div>
-          <h2 className="text-xl font-black tracking-tight text-gray-900">UTH-ConfMS</h2>
-          <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Hệ thống chung</p>
-        </div>
-      </div>
+    <SidebarShell>
+      <RoleHeader icon={portalIcon} title={portalTitle} />
+      
+      {/* Switcher giúp Admin nhảy qua lại Author dễ dàng */}
+      <RoleSwitcher currentArea={currentArea} roles={roles} />
 
-      <div className="px-6 pb-4">
-        <div className="text-xs text-gray-500 font-medium">Xin chào,</div>
-        <div className="font-bold text-gray-900 truncate text-base">
-          {user?.full_name || user?.sub || "User"}
-        </div>
-        <div className="text-xs text-rose-600 mt-1 font-bold bg-rose-50 inline-block px-2 py-0.5 rounded">
-          {roles[0] || "GUEST"}
-        </div>
-      </div>
+      <MenuNav items={menuItems} />
 
-      <nav className="flex-1 px-4 py-2 flex flex-col gap-1 overflow-y-auto custom-scrollbar">
-        {menu.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/"}
-            className={({ isActive }) => `${linkBase} ${isActive ? linkActive : linkInactive}`}
-          >
-            <span className="material-symbols-outlined text-[22px]">{item.icon}</span>
-            <span>{item.label}</span>
-          </NavLink>
-        ))}
-      </nav>
-
-      <div className="p-4 border-t border-gray-200 dark:border-gray-800">
+      <div className="mt-auto pt-4 border-t border-slate-100">
         <button
           onClick={logout}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-rose-600 hover:bg-rose-50 font-bold transition-colors"
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-rose-600 font-bold transition-colors"
         >
           <span className="material-symbols-outlined">logout</span>
           <span>Đăng xuất</span>
         </button>
       </div>
-    </aside>
+    </SidebarShell>
   );
-};
-
-export default Sidebar;
+}

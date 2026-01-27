@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Text, Boolean, Enum
 from sqlalchemy.orm import relationship
 from datetime import datetime
+from sqlalchemy.dialects.mysql import JSON
 from .database import Base
 import enum
 
@@ -11,7 +12,7 @@ class PaperStatus(str, enum.Enum):
     ACCEPTED = "ACCEPTED"           # Được chấp nhận
     REJECTED = "REJECTED"           # Bị từ chối
     REVISION_REQUIRED = "REVISION_REQUIRED" # Cần sửa chữa 
-    WITHDRAWN = "WITHDRAWN"
+    WITHDRAWN = "WITHDRAWN" # rút bài
 
 # 2. Bảng chính: Bài báo (Papers)
 class Paper(Base):
@@ -20,7 +21,7 @@ class Paper(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     abstract = Column(Text, nullable=False)
-    keywords = Column(String(255), nullable=True, comment="Từ khóa bài báo")
+    keywords = Column(JSON, nullable=False, default=list, comment="Từ khóa bài báo")
 
     # Các ID liên kết logic (Foreign Key logic)
     conference_id = Column(Integer, nullable=False)

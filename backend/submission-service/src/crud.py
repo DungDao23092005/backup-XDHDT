@@ -339,7 +339,7 @@ def upload_new_version(
 def validate_submission_window(conference_id: int):
 
     try:
-        url = f"{settings.CONFERENCE_SERVICE_URL}/{conference_id}"
+        url = f"{settings.CONFERENCE_SERVICE_URL}/conferences/{conference_id}"
         resp = requests.get(url, timeout=5)
         
         if resp.status_code == 404:
@@ -462,3 +462,48 @@ def send_notification_email(to_email: str, subject: str, content: str):
         requests.post(settings.NOTIFICATION_URL, json=payload, timeout=5)
     except Exception as e:
         print(f"Failed to send email notification: {e}")
+
+def update_author(db: Session, paper_id: int, author_id: int, submitter_id: int, author_data: schemas.AuthorUpdate):
+    paper = check_paper_ownership(db, paper_id, submitter_id)
+
+    if paper.status in [models.PaperStatus.ACCEPTED, models.PaperStatus.REJECTED, models.PaperStatus.WITHDRAWN]:
+        raise exceptions.BusinessRuleError("Cannot edit authors of a closed paper.")
+
+    if paper.status != models.PaperStatus.REVISION_REQUIRED:
+        validate_submission_window(paper.conference_id)
+
+    author = db.query(models.PaperAuthor).filter(
+        models.PaperAuthor.id == author_id,
+        models.PaperAuthor.paper_id == paper_id
+    ).first()
+
+    if not author:
+        raise exceptions.AuthorNotFoundError(f"Author {author_id} not found in paper {paper_id}")
+
+    # email duplicate check nếu đổi email
+    if author_data.email and author_data.email != author.email:
+        exists = db.query(models.PaperAuthor).filter(
+            models.PaperAuthor.paper_id == paper_id,
+            models.PaperAuthor.email == author_data.email
+        ).first()
+        if exists:
+            raise exceptions.BusinessRuleError(f"Author with email '{author_data.email}' already exists in this paper.")
+
+    if author_data.full_name is not None:
+        author.full_name = author_data.full_name
+    if author_data.email is not None:
+        author.email = author_data.email
+    if author_data.organization is not None:
+        author.organization = author_data.organization
+
+    # nếu set corresponding = true thì đảm bảo chỉ 1 người corresponding
+    if author_data.is_corresponding is not None:
+        if author_data.is_corresponding:
+            db.query(models.PaperAuthor).filter(
+                models.PaperAuthor.paper_id == paper_id
+            ).update({models.PaperAuthor.is_corresponding: False})
+        author.is_corresponding = author_data.is_corresponding
+
+    db.commit()
+    db.refresh(author)
+    return author

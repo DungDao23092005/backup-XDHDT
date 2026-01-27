@@ -40,16 +40,19 @@ def _notification_endpoint() -> str:
 
 # --- HÀM GỌI API ---
 def call_notification_service_task(payload: dict):
-    notification_url = _notification_endpoint()
+    notification_url = settings.NOTIFICATION_SERVICE_URL
+    headers = {"X-Internal-Key": settings.INTERNAL_KEY}
+
     try:
-        with httpx.Client() as client:
-            response = client.post(notification_url, json=payload)
-            if response.status_code == 201:
-                print(f" [Submission Service] Notification sent for Paper #{payload['paper_id']}")
+        with httpx.Client(timeout=10.0) as client:
+            res = client.post(notification_url, json=payload, headers=headers)
+            if res.status_code == 201:
+                print(f"[Submission Service] Notification sent for Paper #{payload.get('paper_id')}")
             else:
-                print(f" [Submission Service] Failed to send notification: {response.status_code} - {response.text}")
+                print(f"[Submission Service] Failed: {res.status_code} {res.text}")
     except Exception as e:
-        print(f" [Submission Service] Connection Error: {str(e)}")
+        print(f"[Submission Service] Connection Error: {str(e)}")
+
 
 
 # -----------------------------
@@ -160,8 +163,8 @@ def submit_paper(
             "subject": f"Xác nhận nộp bài: {paper.title}",
             "body": f"Bài báo #{paper.id} đã được nộp thành công vào hệ thống. Vui lòng chờ phản hồi.",
         }
-
         background_tasks.add_task(call_notification_service_task, notification_payload)
+
 
         return paper
 
@@ -432,3 +435,32 @@ def upload_camera_ready(
         if os.path.exists(file_path):
             os.remove(file_path)
         raise HTTPException(status_code=400, detail=str(e))
+    
+    
+# UPDATE tác giả: AUTHOR/ADMIN
+@router.put(
+    "/{paper_id}/authors/{author_id}",
+    response_model=schemas.AuthorResponse,
+    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
+)
+def update_author(
+    paper_id: int,
+    author_id: int,
+    author_data: schemas.AuthorUpdate,   # tạo schema mới
+    db: Session = Depends(database.get_db),
+    payload=Depends(get_current_payload),
+):
+    submitter_id = payload.get("user_id")
+    if not submitter_id:
+        raise HTTPException(status_code=401, detail="Token missing user_id")
+
+    try:
+        return crud.update_author(db, paper_id, author_id, submitter_id, author_data)
+    except exceptions.PaperNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except exceptions.AuthorNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except exceptions.NotAuthorizedError as e:
+        raise HTTPException(status_code=403, detail=e.message)
+    except exceptions.BusinessRuleError as e:
+        raise HTTPException(status_code=400, detail=e.message)

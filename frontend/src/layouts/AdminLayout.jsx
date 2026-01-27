@@ -1,7 +1,6 @@
 // File: src/layouts/AdminLayout.jsx
 import React from "react";
 import { Outlet } from "react-router-dom";
-// Dựa vào ảnh: Sidebar nằm trong components/layout
 import Sidebar from "../components/layout/Sidebar"; 
 
 export default function AdminLayout() {

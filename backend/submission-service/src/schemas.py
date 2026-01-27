@@ -61,7 +61,7 @@ class PaperVersionResponse(BaseModel):
 class PaperBase(BaseModel):
     title: str
     abstract: str
-    keywords: Optional[str] = None
+    keywords: List[str] = []
     conference_id: int
     track_id: int
     is_blind_mode: bool = True
@@ -108,6 +108,11 @@ class AuthorResponse(AuthorAdd):
     class Config:
         from_attributes = True
 
+class AuthorUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    organization: Optional[str] = None
+    is_corresponding: Optional[bool] = None
 
 class PaperTopicInput(BaseModel):
     topic_id: int
@@ -116,7 +121,7 @@ class PaperTopicInput(BaseModel):
 class PaperUpdate(BaseModel):
     title: Optional[str] = None
     abstract: Optional[str] = None
-    keywords: Optional[str] = None
+    keywords: List[str] = []
 
     topics: Optional[List[PaperTopicInput]] = None
 

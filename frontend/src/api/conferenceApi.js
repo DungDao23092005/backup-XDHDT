@@ -1,19 +1,32 @@
 import axiosClient from "./axiosClient";
+const SERVICE_PREFIX = "/conference"; 
 
-// URL của Conference Service (Lấy từ biến môi trường hoặc hardcode tạm để test)
-// Ví dụ: http://localhost:8000
-const CONFERENCE_URL = process.env.REACT_APP_CONFERENCE_URL || "http://localhost:8000"; 
+const unwrap = (res) => (res?.data !== undefined ? res.data : res);
 
 const conferenceApi = {
-    // Lấy danh sách hội nghị (có thể thêm params limit để lấy 3-4 cái mới nhất)
-    getAll: (params) => {
-        return axiosClient.get(`${CONFERENCE_URL}/conferences`, { params });
-    },
+  getAllConferences: async (params) => {
+    const res = await axiosClient.get(`${SERVICE_PREFIX}/conferences/`, { params });
+    return unwrap(res);
+  },
 
-    // Lấy chi tiết 1 hội nghị theo ID
-    getById: (id) => {
-        return axiosClient.get(`${CONFERENCE_URL}/conferences/${id}`);
-    }
+  // Optional: conference detail
+  getConferenceById: async (id) => {
+    const res = await axiosClient.get(`${SERVICE_PREFIX}/conferences/${id}`);
+    return unwrap(res);
+  },
+  
+
+  // 2) List tracks by conference
+  getTracksByConference: async (conferenceId) => {
+    const res = await axiosClient.get(`${SERVICE_PREFIX}/tracks/conference/${conferenceId}`);
+    return unwrap(res);
+  },
+
+  // 3) List topics by track
+  getTopicsByTrack: async (trackId) => {
+    const res = await axiosClient.get(`${SERVICE_PREFIX}/topics/track/${trackId}`);
+    return unwrap(res);
+  },
 };
 
 export default conferenceApi;

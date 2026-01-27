@@ -60,10 +60,7 @@ export default function AuthorDashboard() {
       setLoadingNoti(true);
 
       const res = await notificationApi.getMyInbox();
-
-      // axios trả về res.data
-      const data = Array.isArray(res?.data) ? res.data : [];
-      // sort mới nhất trước (nếu backend chưa sort)
+      const data = Array.isArray(res) ? res : (Array.isArray(res?.items) ? res.items : []);
       data.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
       setNotiItems(data);
     } catch (e) {

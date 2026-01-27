@@ -1,6 +1,7 @@
 // Gắn Token tự động và xử lý lỗi chung về đăng nhập
 import axios from 'axios';
 import { getToken, removeToken } from '../utils/auth';
+import { extractErrorMessage } from "../utils/errorUtils";
 
 const axiosClient = axios.create({
   baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8080',
@@ -26,9 +27,11 @@ axiosClient.interceptors.request.use(
 );
 
 axiosClient.interceptors.response.use(
-  (response) => response,
+  (response) => response?.data ?? response,
   (error) => {
     const { response } = error;
+
+    error.userMessage = extractErrorMessage(error);
 
     if (response && response.status === 401) {
       console.error("⛔ 401: Token hết hạn/không hợp lệ → logout");
