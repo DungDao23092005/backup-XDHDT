@@ -123,9 +123,17 @@ def update_review(
         if not ass or ass.reviewer_id != user_id:
             raise HTTPException(403, "Not your review")
 
-        # optional: block edit after submit nếu schema có submitted_at/is_draft
+        # FIX: Cho phép sửa nếu muốn revert về draft (is_draft=True)
+        is_reverting = data.is_draft is True
         if hasattr(obj, "submitted_at") and getattr(obj, "submitted_at") is not None:
-            raise HTTPException(400, "Review already submitted; cannot edit")
+            if not is_reverting:
+                raise HTTPException(400, "Review already submitted. You must Un-submit first.")
+            
+            # Nếu đang Revert, ta reset submitted_at và status của assignment
+            obj.submitted_at = None
+            if ass.status == AssignmentStatus.COMPLETED:
+                ass.status = AssignmentStatus.ACCEPTED
+                db.add(ass)
 
     updated = crud.update_review(db, review_id, data)
     if not updated:
@@ -173,14 +181,6 @@ def submit_review(
     db: Session = Depends(get_db),
     payload=Depends(get_current_payload),
 ):
-    """
-    Submit review:
-    - reviewer ownership check
-    - assignment must be Accepted
-    - COI block
-    - mark review submitted (if model has fields)
-    - set assignment = Completed
-    """
     rev = crud.get_review(db, review_id)
     if not rev:
         raise HTTPException(404, "Review not found")
@@ -201,7 +201,7 @@ def submit_review(
     if crud.has_open_coi(db, reviewer_id=ass.reviewer_id, paper_id=ass.paper_id):
         raise HTTPException(400, "COI detected: cannot submit review")
 
-    # mark submitted (tuỳ model có field hay không)
+    # mark submitted
     if hasattr(rev, "is_draft"):
         setattr(rev, "is_draft", False)
     if hasattr(rev, "submitted_at"):
@@ -249,4 +249,3 @@ def update_criteria(
     if not updated:
         raise HTTPException(404, "Criteria not found")
     return updated
-

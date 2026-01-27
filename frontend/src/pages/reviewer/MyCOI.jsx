@@ -32,7 +32,7 @@ export default function MyCOI() {
     setErr("");
     try {
       const res = await reviewApi.listMyCOI();
-      setItems(res.data || []);
+      setItems(Array.isArray(res) ? res : (res?.data || []));
     } catch (e) {
       setErr(e?.response?.data?.detail || e?.message || "Không tải được COI");
     } finally {

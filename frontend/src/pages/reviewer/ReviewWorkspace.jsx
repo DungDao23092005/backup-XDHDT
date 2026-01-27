@@ -1,128 +1,164 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { toast } from "react-toastify";
 import reviewApi from "../../api/reviewApi";
-import * as submissionApi from "../../api/submissionApi";
 import ReviewForm from "./ReviewForm";
+import ReviewDiscussion from "./ReviewDiscussion";
 
 const ReviewWorkspace = () => {
   const { assignmentId } = useParams();
   const navigate = useNavigate();
 
+  // --- UI STATES ---
   const [loading, setLoading] = useState(true);
-  const [paper, setPaper] = useState(null);
-  const [assignment, setAssignment] = useState(null);
+  const [viewMode, setViewMode] = useState("standard"); // 'standard' | 'split'
 
+  // --- DATA STATES ---
+  const [assignment, setAssignment] = useState(null);
+  const [paper, setPaper] = useState(null);
   const [blockedByCoi, setBlockedByCoi] = useState(false);
   const [coiInfo, setCoiInfo] = useState(null);
 
+  // --- REVIEW STATES ---
   const [reviewId, setReviewId] = useState(null);
-  const [criteriaIdMap, setCriteriaIdMap] = useState({}); // { novelty: id, ... }
+  const [criteriaIdMap, setCriteriaIdMap] = useState({});
+  const [isSubmitted, setIsSubmitted] = useState(false);
 
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState("");
+  // --- AUTO SAVE STATES ---
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [lastAutoSaved, setLastAutoSaved] = useState(null);
+  const isFirstLoad = useRef(true); 
+  const [saving, setSaving] = useState(false);
 
-  // Form state
+  // --- FORM STATE ---
   const [form, setForm] = useState({
-    // review main
     final_score: 0,
     confidence_score: 3,
     content_author: "",
     content_pc: "",
     is_anonymous: true,
     is_draft: true,
-
-    // UI-only
-    recommendation: "",
-
-    // criterias
     criterias: {
-      novelty: { criteria_name: "Novelty", grade: 0, weight: 0.3, comment: "" },
-      methodology: { criteria_name: "Methodology", grade: 0, weight: 0.4, comment: "" },
-      presentation: { criteria_name: "Presentation", grade: 0, weight: 0.3, comment: "" },
+      novelty: { grade: 0, comment: "", weight: 0.4 },
+      methodology: { grade: 0, comment: "", weight: 0.3 },
+      presentation: { grade: 0, comment: "", weight: 0.3 },
     },
   });
 
-  const formatNow = () => new Date().toLocaleString("vi-VN");
+  // Helper hiển thị thời gian
+  const formatTime = (date) => date.toLocaleTimeString("vi-VN", { hour: '2-digit', minute:'2-digit' });
 
-  const enumValue = (x) => (x?.value ?? x ?? "").toString();
+  // Tính toán Deadline
+  const isOverdue = useMemo(() => {
+    if (!assignment?.due_date) return false;
+    return new Date() > new Date(assignment.due_date);
+  }, [assignment]);
 
-  const ensureAssignmentAccepted = async (a) => {
-    // Backend rule: chỉ Accepted mới được tạo review
-    const st = enumValue(a?.status).toLowerCase();
-    if (st === "invited") {
-      await reviewApi.acceptAssignment(a.id);
-      const refreshed = await reviewApi.getAssignment(a.id);
-      return refreshed.data;
+  // Lấy URL PDF
+  const pdfUrl = useMemo(() => {
+      if (paper?.versions && paper.versions.length > 0) {
+          return paper.versions[0].file_url;
+      }
+      return null;
+  }, [paper]);
+
+  // Tự động chuyển sang Split View nếu có PDF và màn hình lớn
+  useEffect(() => {
+    if (pdfUrl && window.innerWidth > 1024) {
+        setViewMode("split");
     }
-    return a;
-  };
-
-  const checkOpenCoiForPaper = async (paperId) => {
-    // reviewer_id sẽ bị override ở backend => chỉ cần paper_id
-    const res = await reviewApi.listCOI({ paper_id: Number(paperId) });
-    const list = res.data || [];
-    const open = list.find((c) => enumValue(c.status) === "Open");
-    return open || null;
-  };
+  }, [pdfUrl]);
 
   useEffect(() => {
+    const ensureAssignmentAccepted = async (a) => {
+      const st = (a?.status?.value ?? a?.status ?? "").toString().toLowerCase();
+      if (st === "invited") {
+        await reviewApi.acceptAssignment(a.id);
+        const refreshed = await reviewApi.getAssignment(a.id);
+        return refreshed.data || refreshed;
+      }
+      return a;
+    };
+
+    const checkOpenCoiForPaper = async (paperId) => {
+      if (!paperId) return null;
+      try {
+        const res = await reviewApi.listCOI({ paper_id: Number(paperId) });
+        const list = Array.isArray(res) ? res : (res.data || []);
+        const open = list.find((c) => (c.status?.value ?? c.status ?? "").toString().toLowerCase() === "open");
+        return open || null;
+      } catch (e) { return null; }
+    };
+
     const fetchData = async () => {
       try {
         setLoading(true);
         setBlockedByCoi(false);
         setCoiInfo(null);
+        setIsSubmitted(false);
 
-        // 1) Assignment detail
+        // 1. Get Assignment
         const assignmentRes = await reviewApi.getAssignment(assignmentId);
-        let a = assignmentRes.data;
+        let a = assignmentRes?.data || assignmentRes;
+        if (!a || !a.id) throw new Error(`Không tìm thấy assignment #${assignmentId}`);
 
-        // 1.1) auto-accept nếu Invited
-        try {
-          a = await ensureAssignmentAccepted(a);
-        } catch (e) {
-          // Không chặn cứng: nếu accept fail thì vẫn hiển thị thông báo và cho user quay lại
-          const msg = e?.response?.data?.detail || e?.message || "Không thể accept assignment.";
-          toast.error(msg);
-        }
-
+        try { a = await ensureAssignmentAccepted(a); } 
+        catch (e) { toast.error("Không thể accept assignment: " + e.message); }
         setAssignment(a);
 
-        // 2) Paper id
+        // 2. Get Paper Info
         const paperId = a.paper_id ?? a.paperId ?? a.paper?.id;
-        if (!paperId) throw new Error("Assignment missing paper_id");
-
-        // 3) COI check (Open => block)
         const openCoi = await checkOpenCoiForPaper(paperId);
         if (openCoi) {
           setBlockedByCoi(true);
           setCoiInfo(openCoi);
         }
 
-        // 4) Paper detail (fallback qua submissionApi)
         if (a.paper) {
           setPaper(a.paper);
         } else {
-          const p = await submissionApi.getPaperForReviewer(paperId);
-          setPaper(p);
+          // Fallback fetch PDF URL
+          let url = "";
+          try {
+             const pdfRes = await reviewApi.getPaperPdfUrlByAssignment(assignmentId);
+             url = (pdfRes.data || pdfRes).pdf_url || "";
+          } catch(ignore) {}
+
+          setPaper({
+             id: paperId,
+             title: a.paper_title || a.title || `Paper #${paperId}`,
+             abstract: a.paper_abstract || "Nội dung tóm tắt đang được bảo mật.",
+             versions: url ? [{ file_url: url }] : []
+          });
         }
 
-        // 5) Nếu bị COI thì không cần load review/criterias nữa
-        if (openCoi) return;
+        // --- 👇 HARDCODE TEST CHO BÀI 210 👇 ---
+        // Ép bài báo 210 nhận file demo.pdf để test Split View
+        if (String(paperId) === "210") {
+             console.log("🔥 Đang test Split View với demo.pdf");
+             setPaper(prev => ({
+                 ...prev,
+                 versions: [{ file_url: "http://localhost:3000/demo.pdf" }]
+             }));
+             setViewMode("split"); // Bật luôn split view
+        }
+        // ------------------------------------
 
-        // 6) Load existing review (nếu có)
+        if (openCoi) return; 
+
+        // 3. Get Review
         const reviewsRes = await reviewApi.listReviews({ assignmentId: Number(assignmentId) });
-        const reviews = reviewsRes.data || [];
+        const reviews = Array.isArray(reviewsRes) ? reviewsRes : (reviewsRes.data || []);
 
         if (reviews.length > 0) {
           const r0 = reviews[0];
           setReviewId(r0.id);
-
           const rDetailRes = await reviewApi.getReview(r0.id);
-          const r = rDetailRes.data;
+          const r = rDetailRes.data || rDetailRes;
 
-          // map criterias id theo criteria_name
+          const submitted = r.is_draft === false || r.submitted_at != null;
+          setIsSubmitted(submitted);
+
           const map = {};
           (r.criterias || []).forEach((c) => {
             const name = (c.criteria_name || "").toLowerCase();
@@ -131,7 +167,6 @@ const ReviewWorkspace = () => {
             else if (name.includes("present")) map.presentation = c.id;
           });
           setCriteriaIdMap(map);
-
           const findById = (id) => (r.criterias || []).find((c) => c.id === id);
 
           setForm((prev) => ({
@@ -143,349 +178,302 @@ const ReviewWorkspace = () => {
             is_anonymous: r.is_anonymous ?? true,
             is_draft: r.is_draft ?? true,
             criterias: {
-              novelty: {
-                ...prev.criterias.novelty,
-                grade: findById(map.novelty)?.grade ?? prev.criterias.novelty.grade,
-                comment: findById(map.novelty)?.comment ?? prev.criterias.novelty.comment,
-              },
-              methodology: {
-                ...prev.criterias.methodology,
-                grade: findById(map.methodology)?.grade ?? prev.criterias.methodology.grade,
-                comment: findById(map.methodology)?.comment ?? prev.criterias.methodology.comment,
-              },
-              presentation: {
-                ...prev.criterias.presentation,
-                grade: findById(map.presentation)?.grade ?? prev.criterias.presentation.grade,
-                comment: findById(map.presentation)?.comment ?? prev.criterias.presentation.comment,
-              },
+              novelty: { ...prev.criterias.novelty, grade: findById(map.novelty)?.grade ?? 0, comment: findById(map.novelty)?.comment ?? "" },
+              methodology: { ...prev.criterias.methodology, grade: findById(map.methodology)?.grade ?? 0, comment: findById(map.methodology)?.comment ?? "" },
+              presentation: { ...prev.criterias.presentation, grade: findById(map.presentation)?.grade ?? 0, comment: findById(map.presentation)?.comment ?? "" },
             },
           }));
         }
       } catch (error) {
-        console.error("Error fetching data:", error);
-        toast.error("Không thể tải trang chấm điểm.");
+        toast.error("Lỗi tải trang: " + (error.message || "Unknown"));
       } finally {
         setLoading(false);
       }
     };
-
-    fetchData();
+    if (assignmentId) fetchData();
   }, [assignmentId]);
 
-  const validateBeforeSave = () => {
-    const { criterias, content_author, recommendation } = form;
+  // Tính điểm
+  useEffect(() => {
+    const { novelty, methodology, presentation } = form.criterias;
+    const score = novelty.grade * (novelty.weight || 0.4) + methodology.grade * (methodology.weight || 0.3) + presentation.grade * (presentation.weight || 0.3);
+    const rounded = Math.round(score * 10) / 10;
+    setForm(prev => (prev.final_score === rounded) ? prev : { ...prev, final_score: rounded });
+  }, [form.criterias]);
 
-    const hasAnyGrade =
-      (criterias.novelty.grade || 0) > 0 &&
-      (criterias.methodology.grade || 0) > 0 &&
-      (criterias.presentation.grade || 0) > 0;
+  // Auto Save
+  useEffect(() => {
+    if (loading || isSubmitted || isFirstLoad.current) { isFirstLoad.current = false; return; }
+    const timer = setTimeout(() => { onSave(true, true); }, 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form]);
 
-    return {
-      hasAnyGrade,
-      hasAuthorComment: (content_author || "").trim().length > 0,
-      hasRecommendation: !!recommendation,
-    };
+  // --- Handlers ---
+  const handleCriteriaChange = (key, field, value) => {
+    if (isSubmitted) return; 
+    setForm((prev) => ({ ...prev, criterias: { ...prev.criterias, [key]: { ...prev.criterias[key], [field]: value } } }));
   };
 
-  const upsertReviewAndCriterias = async ({ draft }) => {
-    if (blockedByCoi) {
-      // chặn tuyệt đối tại UI để khỏi spam request 400
-      throw new Error("COI Open: cannot create/update review.");
+  const handleFieldChange = (field, value) => {
+    if (isSubmitted) return; 
+    setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const validate = () => {
+    if (form.final_score <= 0) return "Vui lòng chấm điểm các tiêu chí";
+    if (!form.content_author.trim()) return "Vui lòng nhập nhận xét cho tác giả";
+    return null;
+  };
+
+  const handleReopen = async () => {
+    if (!window.confirm("Bạn muốn chỉnh sửa lại kết quả đánh giá? Bài chấm sẽ chuyển về trạng thái NHÁP.")) return;
+    setSaving(true);
+    try {
+        await reviewApi.updateReview(reviewId, { is_draft: true });
+        setIsSubmitted(false); 
+        toast.success("Đã mở lại bài chấm (Chế độ Nháp)");
+        setForm(prev => ({ ...prev, is_draft: true }));
+    } catch (e) {
+        toast.error("Không thể mở lại bài chấm: " + (e?.response?.data?.detail || e.message));
+    } finally {
+        setSaving(false);
     }
+  };
 
-    // Guard: assignment must be Accepted
-    const st = enumValue(assignment?.status).toLowerCase();
-    if (st !== "accepted") {
-      // thử accept lại một lần
-      const msg = "Assignment chưa Accepted. Vui lòng Accept trước khi chấm.";
-      throw new Error(msg);
-    }
+  const onSave = async (isDraft = true, silent = false) => {
+    if (isSubmitted && !silent) { toast.info("Bài đã nộp. Vui lòng bấm 'Chỉnh sửa lại'."); return; }
+    const err = (!isDraft && !silent) ? validate() : null;
+    if (err) { toast.warning(err); return; }
 
-    const reviewPayload = {
-      assignment_id: Number(assignmentId),
-      final_score: form.final_score ?? 0,
-      confidence_score: form.confidence_score ?? 3,
-      content_author: form.content_author ?? "",
-      content_pc: form.content_pc ?? "",
-      is_anonymous: form.is_anonymous ?? true,
-      is_draft: draft,
-    };
+    if (silent) setIsAutoSaving(true); else setSaving(true);
 
-    let rid = reviewId;
-    if (!rid) {
-      const created = await reviewApi.createReview(reviewPayload);
-      rid = created.data.id;
-      setReviewId(rid);
-    } else {
-      await reviewApi.updateReview(rid, reviewPayload);
-    }
-
-    // upsert criterias
-    const entries = [
-      { key: "novelty", data: form.criterias.novelty },
-      { key: "methodology", data: form.criterias.methodology },
-      { key: "presentation", data: form.criterias.presentation },
-    ];
-
-    const newMap = { ...criteriaIdMap };
-
-    for (const item of entries) {
-      const payload = {
-        criteria_name: item.data.criteria_name,
-        grade: item.data.grade || null,
-        weight: item.data.weight,
-        comment: item.data.comment || null,
-      };
-
-      const existingId = newMap[item.key];
-      if (existingId) {
-        await reviewApi.updateCriteria(rid, existingId, payload);
+    try {
+      let currentReviewId = reviewId;
+      if (!currentReviewId) {
+        const createRes = await reviewApi.createReview({
+          assignment_id: Number(assignmentId),
+          final_score: form.final_score,
+          confidence_score: Number(form.confidence_score),
+          content_author: form.content_author,
+          content_pc: form.content_pc,
+          is_anonymous: form.is_anonymous,
+          is_draft: true,
+        });
+        const newReview = createRes.data || createRes;
+        currentReviewId = newReview.id;
+        setReviewId(currentReviewId);
       } else {
-        const createdC = await reviewApi.addCriteria(rid, payload);
-        newMap[item.key] = createdC.data.id;
+        await reviewApi.updateReview(currentReviewId, {
+          final_score: form.final_score,
+          confidence_score: Number(form.confidence_score),
+          content_author: form.content_author,
+          content_pc: form.content_pc,
+          is_anonymous: form.is_anonymous,
+          is_draft: true, 
+        });
       }
-    }
 
-    setCriteriaIdMap(newMap);
-    return rid;
-  };
+      const promises = Object.keys(form.criterias).map(async (key) => {
+        const cData = form.criterias[key];
+        const criteriaNameMap = { novelty: "Novelty & Significance", methodology: "Methodology & Technical Depth", presentation: "Presentation & Clarity" };
+        const payload = { grade: Number(cData.grade), comment: cData.comment, weight: cData.weight };
+        const existingId = criteriaIdMap[key];
+        
+        if (existingId) return reviewApi.updateCriteria(currentReviewId, existingId, payload);
+        else {
+           const res = await reviewApi.addCriteria(currentReviewId, { ...payload, criteria_name: criteriaNameMap[key] });
+           const created = res.data || res;
+           setCriteriaIdMap(prev => ({ ...prev, [key]: created.id }));
+           return created;
+        }
+      });
+      await Promise.all(promises);
 
-  const handleSaveDraft = async () => {
-    if (blockedByCoi) {
-      toast.error("Bài này đang có COI (Open). Không thể lưu nháp / chấm điểm.");
-      return;
-    }
-
-    try {
-      setIsSaving(true);
-      await upsertReviewAndCriterias({ draft: true });
-      setLastSavedAt(formatNow());
-      toast.success("Đã lưu bản nháp.");
+      if (!isDraft) {
+        await reviewApi.submitReview(currentReviewId);
+        toast.success("Đã nộp bài review thành công!");
+        setIsSubmitted(true);
+        navigate("/reviewer/assignments");
+      } else {
+        if (!silent) toast.success("Đã lưu bản nháp (" + formatTime(new Date()) + ")");
+        if (silent) setLastAutoSaved(new Date());
+      }
     } catch (e) {
-      console.error(e);
-      toast.error(e?.response?.data?.detail || e?.message || "Lưu bản nháp thất bại.");
+      if (!silent) toast.error("Lỗi: " + (e?.response?.data?.detail || e.message));
     } finally {
-      setIsSaving(false);
+      if (silent) setIsAutoSaving(false); else setSaving(false);
     }
   };
 
-  const handleSubmitFinal = async () => {
-    if (blockedByCoi) {
-      toast.error("Bài này đang có COI (Open). Không thể gửi đánh giá.");
-      return;
-    }
-
-    const v = validateBeforeSave();
-    if (!v.hasAnyGrade) return toast.error("Vui lòng chấm đủ 3 tiêu chí (1-5).");
-    if (!v.hasAuthorComment) return toast.error("Vui lòng nhập nhận xét gửi tác giả.");
-    if (!v.hasRecommendation) return toast.error("Vui lòng chọn đánh giá tổng quát.");
-
-    try {
-      setIsSubmitting(true);
-
-      // save as not draft first
-      const rid = await upsertReviewAndCriterias({ draft: false });
-
-      // submit
-      await reviewApi.submitReview(rid);
-
-      toast.success("Đã gửi đánh giá thành công!");
-      navigate("/reviewer/assignments");
-    } catch (e) {
-      console.error(e);
-      toast.error(e?.response?.data?.detail || e?.message || "Gửi đánh giá thất bại.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (loading)
-    return (
-      <div className="text-center mt-5">
-        <div className="spinner-border text-primary"></div>
-        <p>Đang tải dữ liệu...</p>
-      </div>
-    );
-
-  if (!paper)
-    return <div className="text-center mt-5 text-danger">Không tìm thấy bài báo.</div>;
-
-  // BLOCKED UI (COI Open)
-  if (blockedByCoi) {
-    const st = enumValue(coiInfo?.status) || "Open";
-    const type = enumValue(coiInfo?.type) || "Manual_Declared";
-    return (
-      <div className="container-fluid p-4">
-        <div className="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
-          <div>
-            <h4 className="mb-1 text-primary">Review Form</h4>
-            <span className="badge bg-secondary me-2">{paper.track_name || "General Track"}</span>
-            <span className="text-muted">Paper ID: #{paper.id}</span>
-          </div>
-          <div className="d-flex gap-2">
-            <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate(-1)}>
-              <i className="bi bi-arrow-left"></i> Quay lại
-            </button>
-          </div>
-        </div>
-
-        <div className="alert alert-danger d-flex align-items-start gap-3" role="alert">
-          <i className="bi bi-exclamation-triangle-fill fs-4"></i>
-          <div>
-            <div className="fw-bold mb-1">Bị chặn do COI (Conflict of Interest)</div>
-            <div className="small">
-              Hệ thống phát hiện bạn đã khai báo COI cho bài này (status: <b>{st}</b>, type: <b>{type}</b>).
-              Theo quy tắc hiện tại, bạn không thể tạo/lưu/gửi đánh giá cho bài báo này.
-            </div>
-            {coiInfo?.description ? (
-              <div className="small mt-2">
-                <b>Mô tả COI:</b> {coiInfo.description}
-              </div>
-            ) : null}
-
-            <div className="mt-3 d-flex flex-wrap gap-2">
-              <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate("/reviewer/assignments")}>
-                Về danh sách assignments
-              </button>
-              <Link className="btn btn-outline-danger btn-sm" to="/reviewer/coi">
-                Xem COI của tôi
-              </Link>
-            </div>
-
-            <div className="small text-muted mt-3">
-              Gợi ý: Nếu COI này được khai báo nhầm, bạn cần cơ chế “resolve/close COI” (hiện backend chưa có endpoint).
-              Khi COI không còn Open, bạn mới chấm được.
-            </div>
-          </div>
-        </div>
-
-        {/* Paper info vẫn cho xem */}
-        <div className="card shadow-sm">
-          <div className="card-header bg-light fw-bold">
-            <i className="bi bi-file-text me-2"></i> Thông tin bài báo
-          </div>
-          <div className="card-body">
-            <h5 className="card-title text-dark fw-bold">{paper.title}</h5>
-            <p className="card-text mt-3">{paper.abstract}</p>
-            <div className="mt-3">
-              <span className="fw-bold">Keywords: </span>
-              {(paper.keywords || "")
-                .split(",")
-                .filter(Boolean)
-                .map((kw, idx) => (
-                  <span key={idx} className="badge bg-light text-dark border me-1">
-                    {kw.trim()}
-                  </span>
-                ))}
-            </div>
-
-            <div className="mt-4 d-grid gap-2">
-              {paper.versions?.length > 0 && paper.versions[0]?.file_url ? (
-                <a
-                  href={paper.versions[0].file_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn btn-outline-primary"
-                >
-                  <i className="bi bi-file-pdf"></i> Xem toàn văn (PDF)
-                </a>
-              ) : (
-                <button className="btn btn-outline-secondary" disabled>
-                  <i className="bi bi-file-pdf"></i> Chưa có PDF
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-medium animate-pulse">Đang tải workspace...</div>;
+  if (blockedByCoi) return <div className="min-h-screen flex items-center justify-center p-4">Bạn đã khai báo COI.</div>;
 
   return (
-    <div className="container-fluid p-4">
-      {/* Header */}
-      <div className="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
-        <div>
-          <h4 className="mb-1 text-primary">Review Form</h4>
-          <span className="badge bg-secondary me-2">{paper.track_name || "General Track"}</span>
-          <span className="text-muted">Paper ID: #{paper.id}</span>
-        </div>
-        <div className="d-flex gap-2">
-          <button className="btn btn-outline-secondary btn-sm" onClick={() => navigate(-1)}>
-            <i className="bi bi-arrow-left"></i> Quay lại
-          </button>
-        </div>
-      </div>
-
-      {/* Optional: cảnh báo nếu assignment chưa Accepted */}
-      {enumValue(assignment?.status).toLowerCase() !== "accepted" ? (
-        <div className="alert alert-warning d-flex align-items-center gap-2" role="alert">
-          <i className="bi bi-info-circle-fill"></i>
-          <div className="small">
-            Assignment hiện tại: <b>{enumValue(assignment?.status)}</b>. Bạn chỉ có thể tạo review khi status là <b>Accepted</b>.
-          </div>
-        </div>
-      ) : null}
-
-      <div className="row g-4">
-        {/* LEFT: paper info */}
-        <div className="col-lg-6" style={{ height: "82vh", overflowY: "auto" }}>
-          <div className="card shadow-sm mb-4">
-            <div className="card-header bg-light fw-bold">
-              <i className="bi bi-file-text me-2"></i> Thông tin bài báo
+    <div className="bg-[#f8f9fa] h-screen flex flex-col overflow-hidden">
+      {/* --- HEADER --- */}
+      <header className="bg-white border-b border-slate-200 shrink-0 z-20 shadow-sm h-16 flex items-center px-4 justify-between">
+          <div className="flex items-center gap-4 min-w-0">
+            <button onClick={() => navigate("/reviewer/assignments")} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-100 text-slate-500 transition-colors">
+              <span className="material-symbols-outlined">arrow_back</span>
+            </button>
+            <div className="min-w-0">
+               <h1 className="text-lg font-black text-slate-900 truncate max-w-md" title={paper?.title}>{paper?.title || `Paper #${paper?.id}`}</h1>
+               <div className="flex items-center gap-3 text-xs text-slate-500 font-semibold">
+                 {isAutoSaving ? <span className="text-slate-500 animate-pulse">Đang lưu...</span> : lastAutoSaved ? <span className="text-emerald-600">Đã lưu tự động {formatTime(lastAutoSaved)}</span> : <span>Sẵn sàng</span>}
+               </div>
             </div>
-            <div className="card-body">
-              <h5 className="card-title text-dark fw-bold">{paper.title}</h5>
-              <p className="card-text mt-3">{paper.abstract}</p>
+          </div>
 
-              <div className="mt-3">
-                <span className="fw-bold">Keywords: </span>
-                {(paper.keywords || "")
-                  .split(",")
-                  .filter(Boolean)
-                  .map((kw, idx) => (
-                    <span key={idx} className="badge bg-light text-dark border me-1">
-                      {kw.trim()}
-                    </span>
-                  ))}
-              </div>
+          <div className="flex items-center gap-3">
+             {/* Toggle View Mode Button */}
+             <div className="hidden lg:flex bg-slate-100 rounded-lg p-1 mr-2 border border-slate-200">
+                <button 
+                   onClick={() => setViewMode("standard")}
+                   className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${viewMode === 'standard' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                   <span className="material-symbols-outlined text-sm">view_agenda</span>
+                   Standard
+                </button>
+                <button 
+                   onClick={() => setViewMode("split")}
+                   className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${viewMode === 'split' ? 'bg-white text-[#1976d2] shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                   disabled={!pdfUrl}
+                   title={!pdfUrl ? "Không có file PDF để xem" : "Vừa đọc vừa chấm"}
+                >
+                   <span className="material-symbols-outlined text-sm">vertical_split</span>
+                   Split View
+                </button>
+             </div>
 
-              {/* PDF link */}
-              <div className="mt-4 d-grid gap-2">
-                {paper.versions?.length > 0 && paper.versions[0]?.file_url ? (
-                  <a
-                    href={paper.versions[0].file_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="btn btn-outline-primary"
-                  >
-                    <i className="bi bi-file-pdf"></i> Xem toàn văn (PDF)
-                  </a>
-                ) : (
-                  <button className="btn btn-outline-secondary" disabled>
-                    <i className="bi bi-file-pdf"></i> Chưa có PDF
+             {/* Action Buttons */}
+             {!isSubmitted ? (
+                <>
+                  <button disabled={saving} onClick={() => onSave(true, false)} className="hidden sm:flex items-center gap-2 px-4 py-2 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg hover:bg-slate-50 disabled:opacity-50">
+                    <span className="material-symbols-outlined text-xl">save</span> Lưu nháp
                   </button>
-                )}
+                  <button disabled={saving} onClick={() => onSave(false, false)} className="flex items-center gap-2 px-5 py-2 bg-primary text-white font-bold rounded-lg hover:shadow-lg disabled:opacity-50">
+                    {saving ? <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span> : <span className="material-symbols-outlined text-xl">send</span>}
+                    Nộp bài
+                  </button>
+                </>
+             ) : (
+                !isOverdue ? (
+                   <button disabled={saving} onClick={handleReopen} className="flex items-center gap-2 px-4 py-2 bg-white border border-amber-200 text-amber-700 font-bold rounded-lg hover:bg-amber-50 shadow-sm">
+                      <span className="material-symbols-outlined text-xl">edit</span> Chỉnh sửa lại
+                   </button>
+                ) : (
+                   <div className="flex items-center gap-2 px-4 py-2 bg-emerald-100 text-emerald-700 font-bold rounded-lg border border-emerald-200 cursor-not-allowed select-none">
+                      <span className="material-symbols-outlined text-xl">check_circle</span> Đã nộp
+                   </div>
+                )
+             )}
+          </div>
+      </header>
+
+      {/* --- MAIN CONTENT --- */}
+      {viewMode === "split" && pdfUrl ? (
+        // === SPLIT VIEW LAYOUT ===
+        <div className="flex flex-1 overflow-hidden">
+           {/* LEFT: PDF Viewer */}
+           <div className="w-1/2 h-full border-r border-slate-200 bg-slate-50 flex flex-col items-center justify-center">
+              {/* Dùng thẻ object với type PDF để ép hiển thị */}
+              <object 
+                 data={`${pdfUrl}#view=FitH&toolbar=0`} 
+                 type="application/pdf" 
+                 className="w-full h-full"
+                 width="100%"
+                 height="100%"
+              >
+                 {/* Fallback */}
+                 <div className="text-center p-6">
+                    <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">picture_as_pdf</span>
+                    <p className="text-slate-500 mb-4">Trình duyệt không hỗ trợ xem trực tiếp.</p>
+                    <a 
+                       href={pdfUrl} 
+                       target="_blank" 
+                       rel="noreferrer" 
+                       className="px-4 py-2 bg-primary text-white font-bold rounded-lg hover:bg-primary/90"
+                    >
+                       Tải file về máy
+                    </a>
+                 </div>
+              </object>
+           </div>
+
+           {/* RIGHT: Grading Form */}
+           <div className="w-1/2 h-full overflow-y-auto bg-[#f8f9fa] p-6 custom-scrollbar">
+              <div className="max-w-3xl mx-auto space-y-6">
+                 {/* Discussion Mini-view */}
+                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-3 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                       <h3 className="font-bold text-slate-800 text-sm">Thảo luận</h3>
+                       <Link to={`/reviewer/discussion/${paper?.id}`} className="text-xs font-bold text-primary hover:underline">Mở rộng</Link>
+                    </div>
+                    <div className="h-40 overflow-y-auto p-2">
+                       {paper?.id && <ReviewDiscussion paperId={paper.id} compact={true} />}
+                    </div>
+                 </div>
+
+                 <ReviewForm form={form} onCriteriaChange={handleCriteriaChange} onFieldChange={handleFieldChange} />
+                 
+                 {isSubmitted && !isOverdue && (
+                   <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                      Bạn có thể chỉnh sửa bài đánh giá này vì chưa đến hạn chót.
+                   </div>
+                 )}
+              </div>
+           </div>
+        </div>
+      ) : (
+        // === STANDARD VIEW LAYOUT (Cũ) ===
+        <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 w-full overflow-y-auto h-full pb-20">
+            <div className="lg:col-span-4 space-y-6">
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+                  <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-primary">article</span> Thông tin bài báo
+                  </h2>
+                  <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase">Tiêu đề</label>
+                        <p className="text-sm font-semibold text-slate-800 leading-snug mt-1">{paper?.title}</p>
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase">Tóm tắt</label>
+                        <div className="mt-1 p-3 bg-slate-50 rounded-lg text-sm text-slate-600 leading-relaxed max-h-60 overflow-y-auto">
+                          {paper?.abstract || "Không có nội dung."}
+                        </div>
+                    </div>
+                    {pdfUrl && (
+                      <div className="pt-2">
+                          <a href={pdfUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 w-full py-2.5 border border-primary/20 bg-primary/5 text-primary font-bold rounded-xl hover:bg-primary/10">
+                            <span className="material-symbols-outlined">open_in_new</span> Mở PDF tab mới
+                          </a>
+                      </div>
+                    )}
+                  </div>
+              </div>
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                  <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+                    <h3 className="font-bold text-slate-800">Thảo luận</h3>
+                    <Link to={`/reviewer/discussion/${paper?.id}`} className="text-xs font-bold text-primary hover:underline">Mở rộng</Link>
+                  </div>
+                  <div className="p-4 max-h-96 overflow-y-auto">
+                    {paper?.id && <ReviewDiscussion paperId={paper.id} compact={true} />}
+                  </div>
               </div>
             </div>
-          </div>
 
-          {/* Bạn có thể giữ AI card mock ở đây nếu muốn */}
+            <div className="lg:col-span-8">
+              <ReviewForm form={form} onCriteriaChange={handleCriteriaChange} onFieldChange={handleFieldChange} />
+              {isSubmitted && !isOverdue && (
+                <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                   Bạn có thể chỉnh sửa bài đánh giá này vì chưa đến hạn chót.
+                </div>
+              )}
+            </div>
         </div>
-
-        {/* RIGHT: Review form */}
-        <div className="col-lg-6" style={{ height: "86vh", overflowY: "auto" }}>
-          <ReviewForm
-            form={form}
-            setForm={setForm}
-            isSaving={isSaving}
-            isSubmitting={isSubmitting}
-            lastSavedAt={lastSavedAt}
-            onSaveDraft={handleSaveDraft}
-            onSubmitFinal={handleSubmitFinal}
-          />
-        </div>
-      </div>
+      )}
     </div>
   );
 };

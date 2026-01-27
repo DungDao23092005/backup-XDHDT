@@ -15,7 +15,7 @@ const PaperBidding = () => {
     try {
       setLoading(true);
       const res = await bidApi.getOpenPapers();
-      setPapers(res.data);
+      setPapers(Array.isArray(res) ? res : []);
     } catch (error) {
       console.error(error);
       toast.error("Không thể tải danh sách bài báo.");

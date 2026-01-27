@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import reviewApi from "../../api/reviewApi";
+import { useAuth } from "../../context/AuthContext";
 
 const TYPES = [
   {
@@ -22,6 +23,7 @@ const TYPES = [
 
 export default function COINew() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -34,15 +36,21 @@ export default function COINew() {
   const [description, setDescription] = useState("");
 
   const load = async () => {
+    if (!user) return;
+
     setLoading(true);
     setErr("");
     try {
       const [assRes, coiRes] = await Promise.all([
-        reviewApi.listMyAssignments(),
+        reviewApi.listAssignments({ reviewerId: user.id }),
         reviewApi.listMyCOI(),
       ]);
-      setAssignments(assRes.data || []);
-      setCois(coiRes.data || []);
+
+      const assList = Array.isArray(assRes) ? assRes : (assRes?.data || []);
+      const coiList = Array.isArray(coiRes) ? coiRes : (coiRes?.data || []);
+
+      setAssignments(assList);
+      setCois(coiList);
     } catch (e) {
       setErr(e?.response?.data?.detail || e?.message || "Không tải được dữ liệu");
     } finally {
@@ -52,14 +60,26 @@ export default function COINew() {
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const paperOptions = useMemo(() => {
+    // 1. Lấy danh sách Paper ID đã khai báo COI rồi (để loại trừ)
     const existing = new Set((cois || []).map((x) => Number(x.paper_id)));
+    
     return (assignments || [])
-      .filter((a) => (a.status || "").toLowerCase() !== "completed")
-      .filter((a) => !existing.has(Number(a.paper_id)))
-      .map((a) => ({ paper_id: a.paper_id, assignment_id: a.id }));
+      .filter((a) => {
+         const st = (a.status || "").toLowerCase();
+         // LOGIC MỚI: Ẩn các bài đã Completed, Declined VÀ Accepted
+         // (Chỉ hiện bài Invited hoặc bài chưa tương tác)
+         return st !== "completed" && st !== "declined" && st !== "accepted"; 
+      })
+      .filter((a) => !existing.has(Number(a.paper_id))) // Loại trừ bài đã có COI
+      .map((a) => ({ 
+          paper_id: a.paper_id, 
+          assignment_id: a.id,
+          title: a.paper_title || a.title || `Paper #${a.paper_id}`
+      }));
   }, [assignments, cois]);
 
   const submit = async (e) => {
@@ -74,7 +94,7 @@ export default function COINew() {
     try {
       await reviewApi.declareCOI({
         paper_id: Number(paperId),
-        reviewer_id: 0, // backend thường lấy từ token; nếu backend bắt buộc, bạn thay bằng user.id
+        reviewer_id: user.id,
         type,
         description: description || null,
       });
@@ -86,7 +106,7 @@ export default function COINew() {
   };
 
   return (
-    <div className="max-w-[960px] mx-auto py-6">
+    <div className="max-w-[960px] mx-auto py-6 px-4">
       <header className="mb-8">
         <h2 className="text-[#0d141b] text-3xl font-black tracking-tight mb-2">
           Khai báo Xung đột lợi ích mới
@@ -106,21 +126,24 @@ export default function COINew() {
         <form onSubmit={submit} className="p-8 flex flex-col gap-8">
           {/* Paper */}
           <div className="flex flex-col gap-2 max-w-2xl">
-            <label className="text-[#0d141b] text-sm font-bold">Chọn Bài báo</label>
+            <label className="text-[#0d141b] text-sm font-bold">Chọn Bài báo <span className="text-rose-500">*</span></label>
             <select
               value={paperId}
               onChange={(e) => setPaperId(e.target.value)}
               className="w-full h-12 px-4 rounded-lg border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm outline-none"
             >
-              <option value="">Tìm kiếm theo mã bài báo (Paper ID)</option>
+              <option value="">-- Chọn bài báo cần khai báo --</option>
+              {paperOptions.length === 0 && !loading && (
+                  <option disabled>Không có bài báo nào (chỉ hiển thị bài Invited)</option>
+              )}
               {paperOptions.map((x) => (
                 <option key={x.assignment_id} value={x.paper_id}>
-                  Paper #{x.paper_id} (Assignment #{x.assignment_id})
+                  {x.title} (ID: {x.paper_id})
                 </option>
               ))}
             </select>
             <p className="text-xs text-[#4c739a]">
-              Chỉ hiển thị bài chưa Completed và chưa có COI.
+              Chỉ hiển thị các bài chưa nhận (Accepted), chưa hoàn thành và chưa khai báo COI.
             </p>
           </div>
 
@@ -170,8 +193,8 @@ export default function COINew() {
                 Lưu ý quan trọng
               </p>
               <p className="text-amber-700 text-sm leading-snug">
-                Khai báo COI sẽ <strong className="underline">tự động Declined</strong>{" "}
-                assignment liên quan (theo backend bạn đã làm).
+                Khai báo COI sẽ <strong className="underline">tự động Từ chối (Declined)</strong>{" "}
+                lời mời chấm bài liên quan.
               </p>
             </div>
           </div>
@@ -186,12 +209,18 @@ export default function COINew() {
               Hủy
             </button>
             <button
-              className="px-8 py-2.5 rounded-lg bg-primary text-white text-sm font-bold hover:bg-primary/90 shadow-md shadow-primary/20 transition-all flex items-center gap-2"
+              className="px-8 py-2.5 rounded-lg bg-primary text-white text-sm font-bold hover:bg-primary/90 shadow-md shadow-primary/20 transition-all flex items-center gap-2 disabled:opacity-50"
               type="submit"
               disabled={loading}
             >
-              <span className="material-symbols-outlined text-sm">check_circle</span>
-              Xác nhận khai báo
+              {loading ? (
+                 "Đang xử lý..."
+              ) : (
+                 <>
+                    <span className="material-symbols-outlined text-sm">check_circle</span>
+                    Xác nhận khai báo
+                 </>
+              )}
             </button>
           </div>
         </form>
@@ -199,7 +228,7 @@ export default function COINew() {
 
       <footer className="mt-8 text-center">
         <p className="text-xs text-[#4c739a]">
-          Bản quyền © 2024 UTH. Mọi quyền được bảo lưu.
+          Bản quyền © 2026 UTH. Mọi quyền được bảo lưu.
         </p>
       </footer>
     </div>
