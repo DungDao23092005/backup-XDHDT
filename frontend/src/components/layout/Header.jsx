@@ -23,14 +23,13 @@ export default function Header() {
 
   const roles = useMemo(() => {
     return Array.isArray(user?.roles)
-      ? user.roles.map((r) => String(r).toUpperCase())
+      ? user.roles.map((r) => String(r.role_name || r).toUpperCase())
       : [];
   }, [user?.roles]);
 
   const primaryRole = useMemo(() => pickPrimaryRole(roles), [roles]);
   const roleMeta = primaryRole ? ROLE_META[primaryRole] : null;
 
-  // dashboard area?
   const inDashboard =
     location.pathname.startsWith("/author") ||
     location.pathname.startsWith("/admin") ||
@@ -41,38 +40,81 @@ export default function Header() {
   const initials = String(displayName || "U").trim().charAt(0).toUpperCase();
 
   return (
-    <header className="h-14 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 shrink-0">
+    <header
+      className="h-14 flex items-center justify-between px-4 sm:px-6 shrink-0"
+      style={{
+        background: "var(--surface)",
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
       <button
         onClick={() => navigate("/")}
         className="flex items-center gap-3 hover:opacity-90"
       >
-        {/* NEW LOGO */}
-        <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-rose-600 to-fuchsia-600 text-white flex items-center justify-center shadow-sm">
+        <div
+          className="h-9 w-9 rounded-xl text-white flex items-center justify-center shadow-sm"
+          style={{ background: "var(--primary)" }}
+        >
           <span className="text-[16px] font-black leading-none">U</span>
         </div>
 
         <div className="leading-tight text-left">
-          <div className="text-[15px] font-black text-slate-900">UTH-ConfMS</div>
-          <div className="text-[10px] font-bold tracking-widest text-slate-400">
+          <div className="text-[15px] font-black" style={{ color: "var(--text)" }}>
+            UTH-ConfMS
+          </div>
+          <div className="text-[10px] font-bold tracking-widest" style={{ color: "var(--muted)" }}>
             CONFERENCE MANAGEMENT
           </div>
         </div>
       </button>
 
       {inDashboard && (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
+          {/* optional role label */}
+          {roleMeta?.label && (
+            <span
+              className="hidden md:inline-flex text-xs font-black px-3 py-1 rounded-full border"
+              style={{
+                color: "var(--primary)",
+                background: "rgb(var(--primary-rgb)/0.08)",
+                borderColor: "rgb(var(--primary-rgb)/0.18)",
+              }}
+            >
+              {roleMeta.label}
+            </span>
+          )}
+
           <div className="hidden sm:flex items-center gap-2">
-            <div className="h-9 w-9 rounded-full bg-rose-50 border border-rose-100 grid place-items-center font-black text-rose-700">
+            <div
+              className="h-9 w-9 rounded-full border grid place-items-center font-black"
+              style={{
+                backgroundColor: "rgb(var(--primary-rgb) / 0.10)",
+                borderColor: "rgb(var(--primary-rgb) / 0.25)",
+                color: "var(--primary)",
+              }}
+            >
               {initials}
             </div>
+
             <div className="max-w-[220px]">
-              <div className="text-xs text-slate-500 font-semibold">Xin chào</div>
-              <div className="text-sm font-black text-slate-800 truncate">{displayName}</div>
+              <div className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
+                Xin chào
+              </div>
+              <div className="text-sm font-black truncate" style={{ color: "var(--text)" }}>
+                {displayName}
+              </div>
             </div>
           </div>
 
-          {/* mobile: chỉ avatar */}
-          <div className="sm:hidden h-9 w-9 rounded-full bg-rose-50 border border-rose-100 grid place-items-center font-black text-rose-700">
+          {/* mobile */}
+          <div
+            className="sm:hidden h-9 w-9 rounded-full border grid place-items-center font-black"
+            style={{
+              backgroundColor: "rgb(var(--primary-rgb) / 0.10)",
+              borderColor: "rgb(var(--primary-rgb) / 0.25)",
+              color: "var(--primary)",
+            }}
+          >
             {initials}
           </div>
         </div>

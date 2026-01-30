@@ -9,7 +9,7 @@ def seed():
         
         # 1. DANH SÁCH ROLE CẦN CÓ (Viết đúng theo Database: Chữ đầu hoa)
         # Nếu DB bạn đang lưu là "ADMIN" (hoa hết) thì sửa lại list này thành hoa hết.
-        role_names = ["Admin", "Author", "Chair", "Reviewer"]
+        role_names = ["ADMIN", "AUTHOR", "CHAIR", "REVIEWER"]
         roles_db = {}
 
         # Vòng lặp kiểm tra và tạo Role
@@ -31,22 +31,22 @@ def seed():
             {
                 "email": "admin@uth.edu.vn",
                 "name": "System Administrator",
-                "role_obj": roles_db["Admin"]
+                "role_obj": roles_db["ADMIN"]
             },
             {
                 "email": "author@uth.edu.vn",
-                "name": "Nguyen Van Tac Gia",
-                "role_obj": roles_db["Author"]
+                "name": "Tac Gia",
+                "role_obj": roles_db["AUTHOR"]
             },
             {
                 "email": "chair@uth.edu.vn",
-                "name": "Tran Van Truong Ban",
-                "role_obj": roles_db["Chair"]
+                "name": "Truong Ban",
+                "role_obj": roles_db["CHAIR"]
             },
             {
                 "email": "reviewer@uth.edu.vn",
-                "name": "Le Thi Phan Bien",
-                "role_obj": roles_db["Reviewer"]
+                "name": "Phan Bien",
+                "role_obj": roles_db["REVIEWER"]
             }
         ]
 

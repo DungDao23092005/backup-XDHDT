@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 from sqlalchemy import DateTime
 from src.database import Base
-
+from sqlalchemy.dialects.mysql import JSON
 
 
 user_roles = Table(
@@ -28,7 +28,14 @@ class User(Base):
     password_hash = Column(String(255), nullable=False) 
     full_name = Column(String(100))
     organization = Column(String(100))
+    department = Column(String(255), nullable=True)
+    research_interests = Column(JSON, nullable=True)
+    phone = Column(String(20), nullable=True)
+    
     is_active = Column(Boolean, default=True)
+
+    reset_token = Column(String(100), nullable=True, index=True) 
+    reset_token_expires_at = Column(DateTime, nullable=True)     
 
     roles = relationship("Role", secondary=user_roles, back_populates="users")
     refresh_tokens = relationship("RefreshToken", back_populates="user", cascade="all, delete-orphan")

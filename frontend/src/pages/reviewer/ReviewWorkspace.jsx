@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { toast } from "react-toastify";
+import axios from "axios"; // Dùng để gọi API Rebuttal
 import reviewApi from "../../api/reviewApi";
 import ReviewForm from "./ReviewForm";
 import ReviewDiscussion from "./ReviewDiscussion";
@@ -16,6 +17,7 @@ const ReviewWorkspace = () => {
   // --- DATA STATES ---
   const [assignment, setAssignment] = useState(null);
   const [paper, setPaper] = useState(null);
+  const [rebuttal, setRebuttal] = useState(null); // <--- State lưu phản biện
   const [blockedByCoi, setBlockedByCoi] = useState(false);
   const [coiInfo, setCoiInfo] = useState(null);
 
@@ -96,6 +98,7 @@ const ReviewWorkspace = () => {
         setBlockedByCoi(false);
         setCoiInfo(null);
         setIsSubmitted(false);
+        setRebuttal(null);
 
         // 1. Get Assignment
         const assignmentRes = await reviewApi.getAssignment(assignmentId);
@@ -132,17 +135,21 @@ const ReviewWorkspace = () => {
           });
         }
 
-        // --- 👇 HARDCODE TEST CHO BÀI 210 👇 ---
-        // Ép bài báo 210 nhận file demo.pdf để test Split View
-        if (String(paperId) === "210") {
-             console.log("🔥 Đang test Split View với demo.pdf");
-             setPaper(prev => ({
-                 ...prev,
-                 versions: [{ file_url: "http://localhost:3000/demo.pdf" }]
-             }));
-             setViewMode("split"); // Bật luôn split view
+        // --- 👇 LẤY REBUTTAL (PHẢN BIỆN CỦA TÁC GIẢ) 👇 ---
+        if (paperId && !openCoi) {
+            try {
+                // Gọi trực tiếp axios vì chưa có trong reviewApi
+                const token = localStorage.getItem("token");
+                const rebRes = await axios.get(`http://localhost:8080/review/rebuttals/paper/${paperId}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                setRebuttal(rebRes.data);
+            } catch (e) {
+                // 404 nghĩa là chưa có rebuttal -> Không làm gì cả
+                setRebuttal(null);
+            }
         }
-        // ------------------------------------
+        // --------------------------------------------------
 
         if (openCoi) return; 
 
@@ -306,6 +313,31 @@ const ReviewWorkspace = () => {
     }
   };
 
+  // --- Sub-component: REBUTTAL DISPLAY ---
+  const RebuttalSection = () => {
+      if (!rebuttal) return null;
+      return (
+        <div className="bg-purple-50 border border-purple-200 rounded-xl p-5 mb-6 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-2 mb-3">
+                <span className="material-symbols-outlined text-purple-700">rate_review</span>
+                <h3 className="font-bold text-purple-900 text-sm uppercase tracking-wider">
+                    Phản hồi từ tác giả (Author's Rebuttal)
+                </h3>
+                <span className="text-xs text-purple-500 ml-auto">
+                    Gửi lúc: {new Date(rebuttal.created_at).toLocaleString("vi-VN")}
+                </span>
+            </div>
+            <div className="bg-white p-4 rounded-lg border border-purple-100 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed shadow-sm max-h-60 overflow-y-auto custom-scrollbar">
+                {rebuttal.content}
+            </div>
+            <div className="mt-2 text-xs text-purple-600 font-medium italic flex items-center gap-1">
+                <span className="material-symbols-outlined text-sm">info</span>
+                Hãy xem xét lại điểm số của bạn dựa trên giải trình này (nếu hợp lý).
+            </div>
+        </div>
+      );
+  };
+
   if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-50 text-slate-500 font-medium animate-pulse">Đang tải workspace...</div>;
   if (blockedByCoi) return <div className="min-h-screen flex items-center justify-center p-4">Bạn đã khai báo COI.</div>;
 
@@ -377,7 +409,7 @@ const ReviewWorkspace = () => {
         <div className="flex flex-1 overflow-hidden">
            {/* LEFT: PDF Viewer */}
            <div className="w-1/2 h-full border-r border-slate-200 bg-slate-50 flex flex-col items-center justify-center">
-              {/* Dùng thẻ object với type PDF để ép hiển thị */}
+              {/* Dùng thẻ object để ép hiển thị PDF */}
               <object 
                  data={`${pdfUrl}#view=FitH&toolbar=0`} 
                  type="application/pdf" 
@@ -385,16 +417,10 @@ const ReviewWorkspace = () => {
                  width="100%"
                  height="100%"
               >
-                 {/* Fallback */}
                  <div className="text-center p-6">
                     <span className="material-symbols-outlined text-4xl text-slate-400 mb-2">picture_as_pdf</span>
                     <p className="text-slate-500 mb-4">Trình duyệt không hỗ trợ xem trực tiếp.</p>
-                    <a 
-                       href={pdfUrl} 
-                       target="_blank" 
-                       rel="noreferrer" 
-                       className="px-4 py-2 bg-primary text-white font-bold rounded-lg hover:bg-primary/90"
-                    >
+                    <a href={pdfUrl} target="_blank" rel="noreferrer" className="px-4 py-2 bg-primary text-white font-bold rounded-lg hover:bg-primary/90">
                        Tải file về máy
                     </a>
                  </div>
@@ -410,10 +436,13 @@ const ReviewWorkspace = () => {
                        <h3 className="font-bold text-slate-800 text-sm">Thảo luận</h3>
                        <Link to={`/reviewer/discussion/${paper?.id}`} className="text-xs font-bold text-primary hover:underline">Mở rộng</Link>
                     </div>
-                    <div className="h-40 overflow-y-auto p-2">
+                    <div className="h-40 overflow-y-auto p-2 custom-scrollbar">
                        {paper?.id && <ReviewDiscussion paperId={paper.id} compact={true} />}
                     </div>
                  </div>
+
+                 {/* REBUTTAL SECTION */}
+                 <RebuttalSection />
 
                  <ReviewForm form={form} onCriteriaChange={handleCriteriaChange} onFieldChange={handleFieldChange} />
                  
@@ -427,7 +456,7 @@ const ReviewWorkspace = () => {
         </div>
       ) : (
         // === STANDARD VIEW LAYOUT (Cũ) ===
-        <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 w-full overflow-y-auto h-full pb-20">
+        <div className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8 w-full overflow-y-auto h-full pb-20 custom-scrollbar">
             <div className="lg:col-span-4 space-y-6">
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
                   <h2 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
@@ -440,7 +469,7 @@ const ReviewWorkspace = () => {
                     </div>
                     <div>
                         <label className="text-xs font-bold text-slate-400 uppercase">Tóm tắt</label>
-                        <div className="mt-1 p-3 bg-slate-50 rounded-lg text-sm text-slate-600 leading-relaxed max-h-60 overflow-y-auto">
+                        <div className="mt-1 p-3 bg-slate-50 rounded-lg text-sm text-slate-600 leading-relaxed max-h-60 overflow-y-auto custom-scrollbar">
                           {paper?.abstract || "Không có nội dung."}
                         </div>
                     </div>
@@ -458,14 +487,18 @@ const ReviewWorkspace = () => {
                     <h3 className="font-bold text-slate-800">Thảo luận</h3>
                     <Link to={`/reviewer/discussion/${paper?.id}`} className="text-xs font-bold text-primary hover:underline">Mở rộng</Link>
                   </div>
-                  <div className="p-4 max-h-96 overflow-y-auto">
+                  <div className="p-4 max-h-96 overflow-y-auto custom-scrollbar">
                     {paper?.id && <ReviewDiscussion paperId={paper.id} compact={true} />}
                   </div>
               </div>
             </div>
 
             <div className="lg:col-span-8">
+              {/* REBUTTAL SECTION */}
+              <RebuttalSection />
+
               <ReviewForm form={form} onCriteriaChange={handleCriteriaChange} onFieldChange={handleFieldChange} />
+              
               {isSubmitted && !isOverdue && (
                 <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
                    Bạn có thể chỉnh sửa bài đánh giá này vì chưa đến hạn chót.

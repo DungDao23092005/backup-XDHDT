@@ -18,10 +18,8 @@ function initials(name) {
   if (!s) return "??";
   const parts = s.split(/\s+/);
   const a = [];
-
   if (parts[0]) a.push(parts[0][0]);
   if (parts.length > 1) a.push(parts[parts.length - 1][0]);
-
   return a.join("").toUpperCase();
 }
 
@@ -89,8 +87,6 @@ export default function AddCoAuthor() {
         organization,
         is_corresponding: !!form.is_corresponding,
       });
-
-      // Sau khi thêm xong: quay lại PaperDetail
       navigate(`/author/submissions/${paperId}`, { replace: true });
     } catch (e2) {
       setErr(e2?.response?.data?.detail || "Thêm đồng tác giả thất bại.");
@@ -99,122 +95,192 @@ export default function AddCoAuthor() {
     }
   };
 
+  const SoftBadge = ({ children }) => (
+    <span
+      className="px-3 py-1 rounded-full text-xs font-black border"
+      style={{
+        background: "rgb(var(--primary-rgb) / 0.10)",
+        borderColor: "rgb(var(--primary-rgb) / 0.25)",
+        color: "var(--primary)",
+      }}
+    >
+      {children}
+    </span>
+  );
+
   return (
-    <div className="bg-slate-50/50 min-h-[calc(100vh-64px)]">
-      {/* Top bar (tone đỏ nhạt để khớp các trang khác) */}
-      <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 sticky top-0 z-10">
+    <div style={{ background: "var(--bg)", minHeight: "calc(100vh - 64px)" }}>
+      {/* Top bar */}
+      <div
+        className="h-16 border-b flex items-center justify-between px-6 md:px-8 sticky top-0 z-10"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+      >
         <div className="flex items-center gap-3">
-          <div className="text-rose-600">
+          <div style={{ color: "var(--primary)" }}>
             <span className="material-symbols-outlined text-2xl">person_add</span>
           </div>
-          <h2 className="text-lg font-black tracking-tight text-slate-900">Thêm đồng tác giả</h2>
+          <h2 className="text-lg font-black tracking-tight" style={{ color: "var(--text)" }}>
+            Thêm đồng tác giả
+          </h2>
         </div>
+
+        <SoftBadge>Co-author</SoftBadge>
       </div>
 
-      <div className="p-8 max-w-4xl mx-auto w-full">
+      <div className="p-6 md:p-8 max-w-4xl mx-auto w-full">
         {/* Heading */}
         <div className="mb-8">
-          <h1 className="text-3xl font-black text-slate-900 mb-2">Thêm thông tin đồng tác giả</h1>
-          <p className="text-slate-500">
+          <h1 className="text-3xl font-black mb-2" style={{ color: "var(--text)" }}>
+            Thêm thông tin đồng tác giả
+          </h1>
+          <p style={{ color: "var(--muted)" }}>
             Vui lòng nhập thông tin chi tiết của đồng tác giả bên dưới để thêm vào bài báo của bạn.
           </p>
           {paper?.title && (
-            <p className="mt-2 text-sm text-slate-400">
-              Bài báo: <span className="font-semibold text-slate-700">{paper.title}</span>
+            <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+              Bài báo:{" "}
+              <span className="font-semibold" style={{ color: "var(--text)" }}>
+                {paper.title}
+              </span>
             </p>
           )}
         </div>
 
         {err && (
-          <div className="mb-6 bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-xl font-semibold">
+          <div
+            className="mb-6 p-4 rounded-xl font-semibold border"
+            style={{
+              background: "rgb(244 63 94 / 0.12)",
+              borderColor: "rgb(244 63 94 / 0.25)",
+              color: "rgb(244 63 94 / 0.95)",
+            }}
+          >
             {err}
           </div>
         )}
 
         {/* Form card */}
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-          <form onSubmit={onSubmit} className="p-8 flex flex-col gap-6">
+        <div className="rounded-2xl shadow-sm overflow-hidden border" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+          <form onSubmit={onSubmit} className="p-6 md:p-8 flex flex-col gap-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-bold text-slate-700">
-                  Họ và tên <span className="text-rose-600">*</span>
+                <label className="text-sm font-bold" style={{ color: "var(--text)" }}>
+                  Họ và tên <span style={{ color: "var(--primary)" }}>*</span>
                 </label>
                 <input
                   value={form.full_name}
                   onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))}
-                  className="w-full rounded-lg border-slate-200 bg-white px-4 py-3 text-sm focus:border-rose-500 focus:ring-rose-500"
+                  className="w-full rounded-lg px-4 py-3 text-sm outline-none"
                   placeholder="Nhập họ và tên đầy đủ"
                   type="text"
+                  style={{
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "rgb(var(--primary-rgb) / 0.55)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                 />
               </div>
 
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-bold text-slate-700">
-                  Địa chỉ Email <span className="text-rose-600">*</span>
+                <label className="text-sm font-bold" style={{ color: "var(--text)" }}>
+                  Địa chỉ Email <span style={{ color: "var(--primary)" }}>*</span>
                 </label>
                 <input
                   value={form.email}
                   onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
-                  className="w-full rounded-lg border-slate-200 bg-white px-4 py-3 text-sm focus:border-rose-500 focus:ring-rose-500"
+                  className="w-full rounded-lg px-4 py-3 text-sm outline-none"
                   placeholder="vi-du@uth.edu.vn"
                   type="email"
+                  style={{
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "rgb(var(--primary-rgb) / 0.55)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                 />
               </div>
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-bold text-slate-700">
-                Đơn vị công tác <span className="text-rose-600">*</span>
+              <label className="text-sm font-bold" style={{ color: "var(--text)" }}>
+                Đơn vị công tác <span style={{ color: "var(--primary)" }}>*</span>
               </label>
               <input
                 value={form.organization}
                 onChange={(e) => setForm((p) => ({ ...p, organization: e.target.value }))}
-                className="w-full rounded-lg border-slate-200 bg-white px-4 py-3 text-sm focus:border-rose-500 focus:ring-rose-500"
+                className="w-full rounded-lg px-4 py-3 text-sm outline-none"
                 placeholder="Ví dụ: Khoa CNTT, Trường ĐH GTVT TP.HCM"
                 type="text"
+                style={{
+                  background: "var(--surface-2)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text)",
+                }}
+                onFocus={(e) => (e.currentTarget.style.borderColor = "rgb(var(--primary-rgb) / 0.55)")}
+                onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
               />
             </div>
 
-            <div className="flex items-start gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
+            <div
+              className="flex items-start gap-3 p-4 rounded-xl border"
+              style={{ background: "rgb(var(--primary-rgb) / 0.06)", borderColor: "rgb(var(--primary-rgb) / 0.18)" }}
+            >
               <div className="flex items-center h-5">
                 <input
                   checked={form.is_corresponding}
                   onChange={(e) => setForm((p) => ({ ...p, is_corresponding: e.target.checked }))}
-                  className="w-5 h-5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                  className="w-5 h-5 rounded"
                   id="corresponding"
                   type="checkbox"
+                  style={{ accentColor: "var(--primary)" }}
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label
-                  className="text-sm font-black text-slate-900 cursor-pointer select-none"
-                  htmlFor="corresponding"
-                >
+                <label className="text-sm font-black cursor-pointer select-none" style={{ color: "var(--text)" }} htmlFor="corresponding">
                   Tác giả liên hệ (Corresponding Author)
                 </label>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs" style={{ color: "var(--muted)" }}>
                   Đánh dấu nếu đây là người chịu trách nhiệm trao đổi chính về bài báo này.
                 </p>
               </div>
             </div>
 
-            <div className="flex gap-4 p-4 bg-rose-50 border-l-4 border-rose-500 rounded-r-xl">
-              <span className="material-symbols-outlined text-rose-600 shrink-0">info</span>
+            <div
+              className="flex gap-4 p-4 rounded-r-xl border-l-4"
+              style={{
+                background: "rgb(var(--primary-rgb) / 0.08)",
+                borderLeftColor: "var(--primary)",
+                borderTop: "1px solid rgb(var(--primary-rgb) / 0.18)",
+                borderRight: "1px solid rgb(var(--primary-rgb) / 0.18)",
+                borderBottom: "1px solid rgb(var(--primary-rgb) / 0.18)",
+              }}
+            >
+              <span className="material-symbols-outlined shrink-0" style={{ color: "var(--primary)" }}>
+                info
+              </span>
               <div className="flex flex-col gap-1">
-                <p className="text-sm font-black text-rose-700">Thông báo quan trọng</p>
-                <p className="text-sm text-slate-600 leading-relaxed">
+                <p className="text-sm font-black" style={{ color: "var(--primary)" }}>
+                  Thông báo quan trọng
+                </p>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--text)" }}>
                   Hệ thống chỉ gửi email xác nhận nộp bài và các cập nhật trạng thái phê duyệt cho{" "}
                   <b>Tác giả liên hệ</b>. Vui lòng đảm bảo thông tin liên hệ là chính xác.
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-3 pt-6" style={{ borderTop: "1px solid var(--border)" }}>
               <button
                 type="button"
                 onClick={onCancel}
-                className="px-6 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                 disabled={busy}
+                className="px-6 py-2.5 text-sm font-bold rounded-lg transition"
+                style={{ color: "var(--text)", border: "1px solid var(--border)", background: "transparent" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.06)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 Hủy bỏ
               </button>
@@ -222,7 +288,12 @@ export default function AddCoAuthor() {
               <button
                 type="submit"
                 disabled={busy}
-                className="px-8 py-2.5 text-sm font-black text-white bg-rose-500 hover:bg-rose-600 rounded-lg shadow-sm shadow-rose-500/20 transition-all flex items-center gap-2 disabled:opacity-50"
+                className="px-8 py-2.5 text-sm font-black rounded-lg transition active:scale-[0.98] disabled:opacity-50 flex items-center gap-2"
+                style={{
+                  background: "var(--primary)",
+                  color: "#fff",
+                  boxShadow: "0 10px 25px rgb(var(--primary-rgb) / 0.20)",
+                }}
               >
                 <span className="material-symbols-outlined text-sm">save</span>
                 Lưu thông tin
@@ -233,33 +304,43 @@ export default function AddCoAuthor() {
 
         {/* Current authors list */}
         <div className="mt-10">
-          <h3 className="text-base font-black mb-4 text-slate-800">
+          <h3 className="text-base font-black mb-4" style={{ color: "var(--text)" }}>
             Danh sách tác giả hiện tại ({authors.length})
           </h3>
 
           {loading ? (
-            <div className="text-slate-500">Đang tải...</div>
+            <div style={{ color: "var(--muted)" }}>Đang tải...</div>
           ) : authors.length === 0 ? (
-            <div className="text-slate-500">Chưa có tác giả.</div>
+            <div style={{ color: "var(--muted)" }}>Chưa có tác giả.</div>
           ) : (
             <div className="space-y-3">
               {authors.map((a) => (
                 <div
                   key={a.id}
-                  className="flex items-center justify-between p-4 bg-white border border-dashed border-slate-200 rounded-xl"
+                  className="flex items-center justify-between p-4 rounded-xl border border-dashed"
+                  style={{ background: "var(--surface)", borderColor: "var(--border)" }}
                 >
                   <div className="flex items-center gap-3">
-                    <div className="size-9 rounded-full bg-slate-100 flex items-center justify-center font-black text-xs text-slate-600">
+                    <div
+                      className="size-9 rounded-full flex items-center justify-center font-black text-xs"
+                      style={{
+                        background: "rgb(var(--primary-rgb) / 0.10)",
+                        border: "1px solid rgb(var(--primary-rgb) / 0.20)",
+                        color: "var(--primary)",
+                      }}
+                    >
                       {initials(a.full_name)}
                     </div>
                     <div>
-                      <p className="text-sm font-black text-slate-900">{a.full_name}</p>
-                      <p className="text-xs text-slate-500 italic">
+                      <p className="text-sm font-black" style={{ color: "var(--text)" }}>
+                        {a.full_name}
+                      </p>
+                      <p className="text-xs italic" style={{ color: "var(--muted)" }}>
                         {a.is_corresponding ? "Tác giả liên hệ (Corresponding)" : a.email}
                       </p>
                     </div>
                   </div>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs" style={{ color: "var(--muted)" }}>
                     {a.created_at ? formatDate(a.created_at) : ""}
                   </span>
                 </div>

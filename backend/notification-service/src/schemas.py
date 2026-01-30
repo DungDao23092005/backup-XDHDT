@@ -40,3 +40,9 @@ class EmailLogResponse(BaseModel):
         from_attributes = True
 
     
+class DeviceCreate(BaseModel):
+    fcm_token: str
+    device_type: Optional[str] = "web"
+
+class DeviceResponse(BaseModel):
+    message: str

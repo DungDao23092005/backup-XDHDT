@@ -16,4 +16,9 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # [NEW] Cấu hình để gọi Notification Service
+    # Mặc định trỏ tới container name trong Docker, nhưng sẽ bị ghi đè bởi biến môi trường nếu có
+    NOTIFICATION_SERVICE_URL: str = "http://notification-service:8000"
+    INTERNAL_KEY: str = "secret_123" 
+
 settings = Settings()

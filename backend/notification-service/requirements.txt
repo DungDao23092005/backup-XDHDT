@@ -12,3 +12,4 @@ fastapi-mail
 
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+firebase-admin==6.2.0

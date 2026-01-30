@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import reviewApi from "../../api/reviewApi";
 import { useAuth } from "../../context/AuthContext";
-import { toast } from "react-toastify"; // Nhớ import toast để thông báo kết quả
+import { toast } from "react-toastify";
 
+// Helper hiển thị Badge trạng thái
 const statusBadge = (status) => {
   const s = (status || "").toLowerCase();
 
@@ -59,7 +60,13 @@ export default function MyAssignments() {
   const [resolvingByPaperId, setResolvingByPaperId] = useState({});
 
   // Filter Tabs
-  const [tab, setTab] = useState("all"); 
+  const [tab, setTab] = useState("all");
+
+  // --- HÀM KIỂM TRA QUÁ HẠN ---
+  const isOverdue = (dateStr) => {
+    if (!dateStr) return false;
+    return new Date() > new Date(dateStr);
+  };
 
   const load = async () => {
     if (!user) return;
@@ -156,8 +163,6 @@ export default function MyAssignments() {
   };
 
   const handleDeclareCOI = async (paperId) => {
-    // Điều hướng sang trang khai báo COI, truyền state nếu cần hoặc để user tự chọn
-    // Ở đây đơn giản nhất là chuyển hướng user
     navigate("/reviewer/coi"); 
   };
 
@@ -185,7 +190,6 @@ export default function MyAssignments() {
   const computed = useMemo(() => {
     const all = items || [];
     
-    // --- CẬP NHẬT LOGIC LỌC TAB ---
     const invited = all.filter((x) => (x._ui_status || "").toLowerCase() === "invited");
     const todo = all.filter((x) => (x._ui_status || "").toLowerCase() === "accepted");
     const done = all.filter((x) => (x._ui_status || "").toLowerCase() === "completed");
@@ -223,7 +227,7 @@ export default function MyAssignments() {
           <div className="flex gap-1 p-1 bg-slate-100 rounded-lg overflow-x-auto">
             {[
                 {k: "all", l: "Tất cả", c: computed.all.length},
-                {k: "invited", l: "Mời mới", c: computed.invited.length}, // <--- TAB MỚI
+                {k: "invited", l: "Mời mới", c: computed.invited.length},
                 {k: "todo", l: "Đang chấm", c: computed.todo.length},
                 {k: "done", l: "Hoàn thành", c: computed.done.length},
                 {k: "blocked", l: "Đã xong/Chặn", c: computed.blocked.length}
@@ -267,7 +271,10 @@ export default function MyAssignments() {
                   const isBlocked = s === "coi" || s === "declined";
                   const isDone = s === "completed";
                   const isAccepted = s === "accepted";
-                  const isInvited = s === "invited"; // Check Invited
+                  const isInvited = s === "invited";
+                  
+                  // Tính toán quá hạn
+                  const expired = isOverdue(a.due_date);
 
                   return (
                     <tr key={a.id} className={`hover:bg-slate-50 transition-colors ${isBlocked ? "bg-red-50/20" : ""}`}>
@@ -287,8 +294,9 @@ export default function MyAssignments() {
                       </td>
                       <td className="px-6 py-4 text-center">{statusBadge(a._ui_status)}</td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`text-sm font-medium ${isBlocked ? "text-slate-400 line-through" : "text-slate-600"}`}>
+                        <span className={`text-sm font-medium ${isBlocked ? "text-slate-400 line-through" : expired ? "text-rose-600 font-bold" : "text-slate-600"}`}>
                           {a.due_date ? new Date(a.due_date).toLocaleDateString("vi-VN") : "—"}
+                          {expired && !isDone && !isBlocked && <span className="block text-[10px] text-rose-500">(Quá hạn)</span>}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
@@ -296,27 +304,35 @@ export default function MyAssignments() {
                             
                             {/* --- TRƯỜNG HỢP 1: MỜI MỚI (INVITED) --- */}
                             {isInvited && (
-                                <>
-                                    <button 
-                                        onClick={() => handleAccept(a.id)}
-                                        className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-sm transition"
-                                    >
-                                        Accept
-                                    </button>
-                                    <button 
-                                        onClick={() => handleDecline(a.id)}
-                                        className="px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 transition"
-                                    >
-                                        Decline
-                                    </button>
-                                    <button 
-                                        onClick={() => handleDeclareCOI(a.paper_id)}
-                                        className="px-3 py-1.5 rounded border border-rose-200 bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100 transition"
-                                        title="Khai báo Xung đột lợi ích"
-                                    >
-                                        COI
-                                    </button>
-                                </>
+                                expired ? (
+                                    // NẾU QUÁ HẠN: KHÔNG HIỆN NÚT ACCEPT
+                                    <span className="text-xs font-bold text-rose-500 bg-rose-50 px-2 py-1 rounded border border-rose-100 whitespace-nowrap">
+                                        Đã hết hạn trả lời
+                                    </span>
+                                ) : (
+                                    // NẾU CÒN HẠN: HIỆN NÚT
+                                    <>
+                                        <button 
+                                            onClick={() => handleAccept(a.id)}
+                                            className="px-3 py-1.5 rounded bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-sm transition"
+                                        >
+                                            Accept
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDecline(a.id)}
+                                            className="px-3 py-1.5 rounded border border-slate-300 bg-white text-slate-700 text-xs font-bold hover:bg-slate-50 transition"
+                                        >
+                                            Decline
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDeclareCOI(a.paper_id)}
+                                            className="px-3 py-1.5 rounded border border-rose-200 bg-rose-50 text-rose-700 text-xs font-bold hover:bg-rose-100 transition"
+                                            title="Khai báo Xung đột lợi ích"
+                                        >
+                                            COI
+                                        </button>
+                                    </>
+                                )
                             )}
 
                             {/* --- TRƯỜNG HỢP 2: BỊ CHẶN (COI) --- */}
@@ -344,10 +360,12 @@ export default function MyAssignments() {
                             {isAccepted && (
                                 <button
                                     onClick={() => navigate(`/reviewer/review/${a.id}`)}
-                                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-xs font-bold hover:bg-primary/90 hover:shadow-lg hover:-translate-y-0.5 transition-all shadow-md"
+                                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white text-xs font-bold hover:shadow-lg hover:-translate-y-0.5 transition-all shadow-md ${
+                                        expired ? "bg-rose-600 hover:bg-rose-700" : "bg-primary hover:bg-primary/90"
+                                    }`}
                                 >
                                     <span className="material-symbols-outlined text-sm">rate_review</span>
-                                    Bắt đầu chấm
+                                    {expired ? "Chấm (Trễ hạn)" : "Bắt đầu chấm"}
                                 </button>
                             )}
                         </div>

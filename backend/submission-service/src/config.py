@@ -3,7 +3,10 @@ import os
 
 class Settings(BaseSettings):
     DATABASE_URL: str = "mysql+pymysql://root:root@localhost:3307/submission_db"
-    NOTIFICATION_SERVICE_URL: str = "http://localhost:8001"
+    NOTIFICATION_SERVICE_URL: str = os.getenv(
+    "NOTIFICATION_SERVICE_URL",
+    "http://notification-service:8000/api/notifications"
+    )
     REVIEW_SERVICE_URL: str       = "http://localhost:8003"
     CONFERENCE_SERVICE_URL: str   = "http://localhost:8002"
     INTELLIGENT_SERVICE_URL: str  = "http://localhost:8004"
@@ -11,7 +14,7 @@ class Settings(BaseSettings):
 
     SECRET_KEY: str = "SECRET_KEY_CHANGE_ME" 
     ALGORITHM: str = "HS256"
-
+    INTERNAL_KEY: str = os.getenv("INTERNAL_KEY", "")
     UPLOAD_DIR: str = "uploads"
     MAX_FILE_SIZE_MB: int = 10 
 

@@ -1,8 +1,10 @@
 # src/crud.py
+import secrets
+import string
 from sqlalchemy.orm import Session, joinedload
 from src import models, schemas
 from src.auth import get_password_hash
-from datetime import datetime
+from datetime import datetime, timedelta
 
 def get_user_by_email(db: Session, email: str):
     return db.query(models.User).filter(models.User.email == email).first()
@@ -10,7 +12,45 @@ def get_user_by_email(db: Session, email: str):
 def get_user_by_id(db: Session, user_id: int):
     return db.query(models.User).filter(models.User.id == user_id).first()
 
-# --- Hàm tạo user cho Đăng ký công khai (Giữ nguyên) ---
+def create_reset_token(db: Session, email: str):
+    user = get_user_by_email(db, email)
+    if not user:
+        return None 
+    
+    otp_code = "".join([str(secrets.randbelow(10)) for _ in range(6)])
+    expires_at = datetime.utcnow() + timedelta(minutes=15)
+    
+    user.reset_token = otp_code
+    user.reset_token_expires_at = expires_at
+    
+    db.commit()
+    db.refresh(user)
+    
+    return otp_code
+
+def verify_reset_token(db: Session, token: str):
+    now = datetime.utcnow()
+    user = (
+        db.query(models.User)
+        .filter(models.User.reset_token == token)
+        .filter(models.User.reset_token_expires_at > now) 
+        .first()
+    )
+    return user
+
+def reset_password(db: Session, token: str, new_password: str):
+    user = verify_reset_token(db, token)
+    if not user:
+        return False 
+    
+    user.password_hash = get_password_hash(new_password)
+    user.reset_token = None
+    user.reset_token_expires_at = None
+    
+    db.commit()
+    db.refresh(user)
+    return True
+
 def create_user(db: Session, user: schemas.UserCreate):
     hashed_password = get_password_hash(user.password)
 
@@ -19,10 +59,12 @@ def create_user(db: Session, user: schemas.UserCreate):
         password_hash=hashed_password,
         full_name=user.full_name,
         organization=user.organization,
+        department=user.department,           # [NEW]
+        research_interests=user.research_interests, # [NEW]
+        phone=user.phone,                     # [NEW]
         is_active=user.is_active
     )
 
-    # Logic cũ: Xử lý danh sách roles (List[str])
     if user.roles and len(user.roles) > 0:
         for role_name in user.roles:
             role_key = str(role_name).upper()
@@ -35,15 +77,12 @@ def create_user(db: Session, user: schemas.UserCreate):
         default_role = db.query(models.Role).filter(models.Role.role_name == "AUTHOR").first()
         if default_role:
             db_user.roles.append(default_role)
-        else:
-            print("[WARN] Default role AUTHOR not found in DB")
 
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
     return db_user
 
-# ✅ THÊM MỚI: Hàm tạo user dành riêng cho Admin (Xử lý role đơn lẻ)
 def create_user_by_admin(db: Session, user: schemas.UserCreateByAdmin):
     hashed_password = get_password_hash(user.password)
 
@@ -52,18 +91,18 @@ def create_user_by_admin(db: Session, user: schemas.UserCreateByAdmin):
         password_hash=hashed_password,
         full_name=user.full_name,
         organization=user.organization,
+        department=user.department,           # [NEW]
+        research_interests=user.research_interests, # [NEW]
+        phone=user.phone,                     # [NEW]
         is_active=user.is_active
     )
 
-    # Logic mới: Xử lý role đơn (str)
     target_role_name = (user.role or "AUTHOR").upper()
-    
     role_obj = db.query(models.Role).filter(models.Role.role_name == target_role_name).first()
     
     if role_obj:
         db_user.roles.append(role_obj)
     else:
-        # Fallback về AUTHOR nếu role gửi lên bị sai
         print(f"[WARN] Admin requested role '{target_role_name}' but not found. Fallback to AUTHOR.")
         default_role = db.query(models.Role).filter(models.Role.role_name == "AUTHOR").first()
         if default_role:
@@ -73,8 +112,6 @@ def create_user_by_admin(db: Session, user: schemas.UserCreateByAdmin):
     db.commit()
     db.refresh(db_user)
     return db_user
-
-# --- Các hàm Token và Utility khác (Giữ nguyên) ---
 
 def save_refresh_token(db: Session, user_id: int, token_hash: str, expires_at: datetime):
     rt = models.RefreshToken(
@@ -139,16 +176,27 @@ def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate):
     if not db_user:
         return None
     
-    # Cập nhật từng trường nếu có dữ liệu gửi lên
     if user_update.full_name is not None:
         db_user.full_name = user_update.full_name
     
     if user_update.email is not None:
-        # Kiểm tra xem email mới có bị trùng với người khác không
         existing_email = get_user_by_email(db, user_update.email)
         if existing_email and existing_email.id != user_id:
-            raise Exception("Email already exists") # Báo lỗi nếu trùng
+            raise Exception("Email already exists") 
         db_user.email = user_update.email
+
+    # [NEW] Cập nhật các trường hồ sơ mới
+    if user_update.organization is not None:
+        db_user.organization = user_update.organization
+
+    if user_update.department is not None:
+        db_user.department = user_update.department
+
+    if user_update.research_interests is not None:
+        db_user.research_interests = user_update.research_interests
+
+    if user_update.phone is not None:
+        db_user.phone = user_update.phone
 
     db.commit()
     db.refresh(db_user)
@@ -157,8 +205,14 @@ def update_user(db: Session, user_id: int, user_update: schemas.UserUpdate):
 def delete_user(db: Session, user_id: int):
     db_user = get_user_by_id(db, user_id)
     if not db_user:
-        return False # Không tìm thấy để xóa
+        return False 
     
     db.delete(db_user)
     db.commit()
     return True
+
+def create_email_log_entry(db: Session, recipient: str, subject: str):
+    pass 
+
+def update_email_log_status(db: Session, log_id: int, status: str, error: str = None):
+    pass

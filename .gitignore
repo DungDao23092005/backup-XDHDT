@@ -26,4 +26,9 @@ uploads/
 
 # OS
 .DS_Store
-Thumbs.db
+Thumbs.dbbackend/notification-service/src/serviceAccountKey.json
+
+**/serviceAccountKey.json
+**/*serviceAccount*.json
+*.pem
+*.key

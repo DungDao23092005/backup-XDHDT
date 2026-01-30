@@ -22,10 +22,8 @@ def normalize_roles(roles: Union[str, List[Any], None]) -> List[str]:
         return out
     return []
 
-def decode_access_token(token: str) -> Dict[str, Any]:
+def decode_access_token(token: str):
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        payload["roles"] = normalize_roles(payload.get("roles"))
-        return payload
+        return jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
     except JWTError as e:
-        raise ValueError(f"Invalid token: {e}") from e
+        raise ValueError("Invalid or expired token") from e

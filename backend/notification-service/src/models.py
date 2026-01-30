@@ -1,9 +1,9 @@
-from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Enum
+# backend/notification-service/src/models.py
+from sqlalchemy import Column, Integer, String, Text, Boolean, DateTime, Enum, ForeignKey
+from sqlalchemy.sql import func # [MỚI] Import để dùng server time
 from datetime import datetime
 import enum
 from .database import Base
-
-
 
 class EmailStatus(str, enum.Enum):
     PENDING = "PENDING"  
@@ -41,3 +41,22 @@ class EmailLog(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class NotificationPrefs(Base):
+    __tablename__ = "notification_prefs"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, unique=True, index=True, nullable=False)
+    deadline_reminder = Column(Boolean, default=True, nullable=False)
+
+# [MỚI] Bảng lưu FCM Token của User (Web Push Notification)
+class UserDevice(Base):
+    __tablename__ = "user_devices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True) # ID của user từ Identity Service
+    fcm_token = Column(String(500), nullable=False, unique=True) # Token dài, nên để 500
+    device_type = Column(String(50), default="web") # web, android, ios
+    
+    # Dùng server_default=func.now() tốt hơn datetime.utcnow khi chạy nhiều instance
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())

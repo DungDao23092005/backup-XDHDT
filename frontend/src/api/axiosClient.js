@@ -4,7 +4,7 @@ import { getToken, removeToken } from '../utils/auth';
 import { extractErrorMessage } from "../utils/errorUtils";
 
 const axiosClient = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8080',
+  baseURL: process.env.REACT_APP_API_URL || 'http://127.0.0.1:8080',
 });
 
 

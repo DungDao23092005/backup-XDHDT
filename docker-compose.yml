@@ -71,8 +71,9 @@ services:
       - ./.env
       - ./backend/submission-service/.env
     environment:
+      INTERNAL_KEY: ${INTERNAL_KEY}
       DATABASE_URL: mysql+pymysql://root:root@submission-db:3306/submission_db
-      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000/api/notifications
       REVIEW_SERVICE_URL: http://review-service:8000
       CONFERENCE_SERVICE_URL: http://conference-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
@@ -118,6 +119,8 @@ services:
       - ./.env
       - ./backend/notification-service/.env
     environment:
+      INTERNAL_KEY: ${INTERNAL_KEY}
+      SECRET_KEY: ${JWT_SECRET_KEY}
       DATABASE_URL: mysql+pymysql://root:root@notification-db:3306/notification_db
       <<: *jwt_common
     networks:
@@ -303,6 +306,8 @@ services:
       SECRET_KEY: ${JWT_SECRET_KEY}
       ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      INTERNAL_KEY: ${INTERNAL_KEY}
       
       SEED_ON_STARTUP: "true"
       ADMIN_EMAIL: admin@uth.edu.vn

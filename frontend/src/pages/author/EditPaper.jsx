@@ -9,14 +9,14 @@ import {
   updatePaperDetails,
 } from "../../api/submissionApi";
 
-// ====== status meta (tone nhẹ, đồng bộ rose) ======
+// ====== status meta (tokenized) ======
 const STATUS_META = {
-  SUBMITTED: { label: "Đã nộp (Submitted)", cls: "bg-blue-50 text-blue-700 border-blue-200" },
-  UNDER_REVIEW: { label: "Đang phản biện", cls: "bg-amber-50 text-amber-700 border-amber-200" },
-  ACCEPTED: { label: "Đã chấp nhận", cls: "bg-green-50 text-green-700 border-green-200" },
-  REJECTED: { label: "Từ chối", cls: "bg-rose-50 text-rose-700 border-rose-200" },
-  WITHDRAWN: { label: "Rút bài", cls: "bg-slate-50 text-slate-600 border-slate-200" },
-  REVISION_REQUIRED: { label: "Cần sửa", cls: "bg-purple-50 text-purple-700 border-purple-200" },
+  SUBMITTED: { label: "Đã nộp (Submitted)", tone: "info" },
+  UNDER_REVIEW: { label: "Đang phản biện", tone: "warn" },
+  ACCEPTED: { label: "Đã chấp nhận", tone: "success" },
+  REJECTED: { label: "Từ chối", tone: "danger" },
+  WITHDRAWN: { label: "Rút bài", tone: "neutral" },
+  REVISION_REQUIRED: { label: "Cần sửa", tone: "purple" },
 };
 
 const MAX_MB = 20;
@@ -36,8 +36,10 @@ function formatDate(iso) {
   return `${dd}/${mm}/${yyyy}`;
 }
 
-function fileOk(file) {
+function fileOkPdf(file) {
   if (!file) return "Vui lòng chọn file.";
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  if (!isPdf) return "Chỉ chấp nhận file PDF.";
   const mb = file.size / (1024 * 1024);
   if (mb > MAX_MB) return `File vượt quá ${MAX_MB}MB.`;
   return "";
@@ -50,8 +52,6 @@ function toDownloadUrl(raw) {
 
   let p = String(raw).trim();
   if (!p.startsWith("/")) p = `/${p}`;
-
-  // backend lưu dạng /papers/... => gateway thường expose /submission/uploads/papers/...
   if (p.startsWith("/papers/")) p = `/uploads${p}`;
   if (!p.startsWith("/submission/")) p = `/submission${p}`;
 
@@ -94,6 +94,46 @@ function pickAuthors(paper) {
   return Array.isArray(a) ? a : [];
 }
 
+// ====== small UI helpers ======
+const SoftBadge = ({ children }) => (
+  <span
+    className="px-3 py-1 rounded-full text-xs font-black border"
+    style={{
+      background: "rgb(var(--primary-rgb) / 0.10)",
+      borderColor: "rgb(var(--primary-rgb) / 0.25)",
+      color: "var(--primary)",
+    }}
+  >
+    {children}
+  </span>
+);
+
+function StatusPill({ tone, label }) {
+  // tone palette (không hard-code trắng/sáng)
+  const toneStyle =
+    tone === "info"
+      ? { bg: "rgb(59 130 246 / 0.12)", bd: "rgb(59 130 246 / 0.25)", fg: "rgb(59 130 246 / 0.95)" }
+      : tone === "warn"
+      ? { bg: "rgb(245 158 11 / 0.12)", bd: "rgb(245 158 11 / 0.25)", fg: "rgb(245 158 11 / 0.95)" }
+      : tone === "success"
+      ? { bg: "rgb(34 197 94 / 0.12)", bd: "rgb(34 197 94 / 0.25)", fg: "rgb(34 197 94 / 0.95)" }
+      : tone === "danger"
+      ? { bg: "rgb(244 63 94 / 0.12)", bd: "rgb(244 63 94 / 0.25)", fg: "rgb(244 63 94 / 0.95)" }
+      : tone === "purple"
+      ? { bg: "rgb(168 85 247 / 0.12)", bd: "rgb(168 85 247 / 0.25)", fg: "rgb(168 85 247 / 0.95)" }
+      : { bg: "rgb(148 163 184 / 0.14)", bd: "rgb(148 163 184 / 0.26)", fg: "rgb(148 163 184 / 0.95)" };
+
+  return (
+    <span
+      className="inline-flex items-center px-3 py-1 rounded-full text-xs font-black border"
+      style={{ background: toneStyle.bg, borderColor: toneStyle.bd, color: toneStyle.fg }}
+    >
+      <span className="size-2 rounded-full mr-2" style={{ background: toneStyle.fg, opacity: 0.65 }} />
+      {label}
+    </span>
+  );
+}
+
 export default function EditPaper() {
   const { id } = useParams();
   const paperId = Number(id);
@@ -115,10 +155,7 @@ export default function EditPaper() {
   const fileRef = useRef(null);
 
   const status = normalizeStatus(paper?.status);
-  const statusMeta = STATUS_META[status] || {
-    label: status || "UNKNOWN",
-    cls: "bg-slate-50 text-slate-600 border-slate-200",
-  };
+  const statusMeta = STATUS_META[status] || { label: status || "UNKNOWN", tone: "neutral" };
 
   const authors = useMemo(() => pickAuthors(paper), [paper]);
   const versions = useMemo(() => pickVersions(paper), [paper]);
@@ -144,6 +181,20 @@ export default function EditPaper() {
       setTitle(p?.title || "");
       setAbstract(p?.abstract || "");
       setKeywords(normalizeKeywordsFromPaper(p));
+
+      // restore draft (nếu có)
+      const DRAFT_KEY = `paper_draft_${paperId}`;
+      const rawDraft = localStorage.getItem(DRAFT_KEY);
+      if (rawDraft) {
+        try {
+          const d = JSON.parse(rawDraft);
+          if (d?.title != null) setTitle(String(d.title));
+          if (d?.abstract != null) setAbstract(String(d.abstract));
+          if (Array.isArray(d?.keywords)) setKeywords(d.keywords);
+        } catch {
+          // ignore
+        }
+      }
 
       if (p?.conference_id) {
         try {
@@ -194,7 +245,7 @@ export default function EditPaper() {
   const removeKeyword = (k) => setKeywords((prev) => prev.filter((x) => x !== k));
 
   const onUploadNewVersion = async (file) => {
-    const msg = fileOk(file);
+    const msg = fileOkPdf(file);
     if (msg) return setErr(msg);
 
     try {
@@ -224,59 +275,69 @@ export default function EditPaper() {
     }
   };
 
-const DRAFT_KEY = `paper_draft_${paperId}`;
+  const DRAFT_KEY = `paper_draft_${paperId}`;
 
-const onSaveDraft = () => {
-  try {
-    setErr("");
-    const payload = { title, abstract, keywords, savedAt: new Date().toISOString() };
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
-    alert("Đã lưu nháp.");
-  } catch {
-    setErr("Lưu nháp thất bại.");
-  }
-};
+  const onSaveDraft = () => {
+    try {
+      setErr("");
+      const payload = { title, abstract, keywords, savedAt: new Date().toISOString() };
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(payload));
+      alert("Đã lưu nháp.");
+    } catch {
+      setErr("Lưu nháp thất bại.");
+    }
+  };
 
-const onSaveChanges = async (e) => {
-  e.preventDefault();
+  const onSaveChanges = async (e) => {
+    e.preventDefault();
 
-  if (!title.trim()) {
-    setErr("Tiêu đề không được để trống.");
-    return;
-  }
+    if (!title.trim()) {
+      setErr("Tiêu đề không được để trống.");
+      return;
+    }
 
-  try {
-    setBusy(true);
-    setErr("");
+    try {
+      setBusy(true);
+      setErr("");
 
-    await updatePaperDetails(paperId, {
-      title: title.trim(),
-      abstract: abstract || "",
-      keywords,
-    });
+      await updatePaperDetails(paperId, {
+        title: title.trim(),
+        abstract: abstract || "",
+        keywords,
+      });
 
-    localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(DRAFT_KEY);
+      navigate(`/author/submissions/${paperId}`, { replace: true });
+    } catch (e2) {
+      setErr(e2?.response?.data?.detail || "Lưu thay đổi thất bại.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
-    navigate(`/author/submissions/${paperId}`, { replace: true });
-  } catch (e2) {
-    setErr(e2?.response?.data?.detail || "Lưu thay đổi thất bại.");
-  } finally {
-    setBusy(false);
-  }
-};
-
-  if (loading) return <div className="p-8 text-slate-500">Đang tải...</div>;
+  if (loading) return <div className="p-8 font-semibold" style={{ color: "var(--muted)" }}>Đang tải...</div>;
 
   if (!paper) {
     return (
-      <div className="bg-slate-50/50 min-h-[calc(100vh-64px)]">
+      <div style={{ background: "var(--bg)", minHeight: "calc(100vh - 64px)" }}>
         <div className="max-w-5xl mx-auto p-6 md:p-8">
-          <div className="bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-2xl font-semibold">
+          <div
+            className="p-4 rounded-2xl font-semibold border"
+            style={{
+              background: "rgb(244 63 94 / 0.12)",
+              borderColor: "rgb(244 63 94 / 0.25)",
+              color: "rgb(244 63 94 / 0.95)",
+            }}
+          >
             {err || "Không tìm thấy bài báo."}
           </div>
+
           <button
             onClick={() => navigate("/author/submissions")}
-            className="mt-4 px-4 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 font-bold"
+            className="mt-4 px-4 py-2 rounded-lg font-bold transition"
+            style={{ border: "1px solid var(--border)", color: "var(--text)" }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.06)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
           >
             Quay lại danh sách
           </button>
@@ -286,102 +347,147 @@ const onSaveChanges = async (e) => {
   }
 
   return (
-    <div className="bg-slate-50/50 min-h-[calc(100vh-64px)]">
-      {/* ✅ Top bar KHỚP PaperDetail */}
-      <div className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-10">
+    <div style={{ background: "var(--bg)", minHeight: "calc(100vh - 64px)" }}>
+      {/* Top bar */}
+      <div
+        className="h-16 border-b flex items-center justify-between px-6 sticky top-0 z-10"
+        style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+      >
         <button
-          onClick={() => navigate(`/author/submissions`)}
-          className="flex items-center gap-2 text-slate-700 hover:text-slate-900 font-bold"
+          onClick={() => navigate(`/author/submissions/${paperId}`)}
+          className="flex items-center gap-2 font-bold rounded-lg px-2 py-2 transition"
+          style={{ color: "var(--text)" }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.06)")}
+          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
         >
-          <span className="material-symbols-outlined text-slate-400">arrow_back</span>
+          <span className="material-symbols-outlined" style={{ color: "var(--muted)" }}>
+            arrow_back
+          </span>
           Quay lại chi tiết
         </button>
 
-        <span className="px-3 py-1 bg-rose-100 text-rose-700 rounded-full text-xs font-semibold border border-rose-200">
-          Chỉnh sửa bài nộp
-        </span>
+        <SoftBadge>Chỉnh sửa bài nộp</SoftBadge>
       </div>
 
-      {/* ✅ Content padding KHỚP PaperDetail */}
+      {/* Content */}
       <div className="max-w-5xl mx-auto p-6 md:p-8 pb-12">
         {/* heading */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
-            <h1 className="text-2xl md:text-3xl font-black text-slate-900">
+            <h1 className="text-2xl md:text-3xl font-black" style={{ color: "var(--text)" }}>
               Chỉnh sửa bài báo #{String(paper.id).padStart(4, "0")}
             </h1>
-            <p className="text-slate-500 mt-1">Cập nhật thông tin chi tiết và phiên bản mới cho bài báo của bạn.</p>
-            <p className="text-xs text-slate-400 mt-2">
+            <p className="mt-1" style={{ color: "var(--muted)" }}>
+              Cập nhật thông tin chi tiết và phiên bản mới cho bài báo của bạn.
+            </p>
+            <p className="text-xs mt-2" style={{ color: "var(--muted)" }}>
               Hội nghị:{" "}
-              <span className="font-semibold text-slate-600">
+              <span className="font-semibold" style={{ color: "var(--text)" }}>
                 {confName || `Conference #${paper.conference_id ?? "--"}`}
               </span>
             </p>
           </div>
 
           <div className="flex flex-col items-end">
-            <span className="text-xs font-black text-slate-400 uppercase tracking-widest mb-1">Trạng thái hiện tại</span>
-            <span
-              className={[
-                "inline-flex items-center px-3 py-1 rounded-full text-xs font-black border",
-                statusMeta.cls,
-              ].join(" ")}
-            >
-              <span className="size-2 rounded-full bg-current mr-2 opacity-60" />
-              {statusMeta.label}
+            <span className="text-xs font-black uppercase tracking-widest mb-1" style={{ color: "var(--muted)" }}>
+              Trạng thái hiện tại
             </span>
+            <StatusPill tone={statusMeta.tone} label={statusMeta.label} />
           </div>
         </div>
 
         {err && (
-          <div className="mb-6 bg-rose-50 border border-rose-200 text-rose-700 p-4 rounded-2xl font-semibold">
+          <div
+            className="mb-6 p-4 rounded-2xl font-semibold border"
+            style={{
+              background: "rgb(244 63 94 / 0.12)",
+              borderColor: "rgb(244 63 94 / 0.25)",
+              color: "rgb(244 63 94 / 0.95)",
+            }}
+          >
             {err}
           </div>
         )}
 
         <form onSubmit={onSaveChanges} className="space-y-6">
           {/* ===== Basic info ===== */}
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <div className="flex items-center gap-2 pb-4 mb-6 border-b border-slate-100">
-              <span className="material-symbols-outlined text-rose-600">edit_note</span>
-              <h3 className="text-lg font-black text-slate-900">Thông tin cơ bản</h3>
+          <section className="rounded-2xl border shadow-sm p-6" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+            <div className="flex items-center gap-2 pb-4 mb-6" style={{ borderBottom: "1px solid var(--border)" }}>
+              <span className="material-symbols-outlined" style={{ color: "var(--primary)" }}>
+                edit_note
+              </span>
+              <h3 className="text-lg font-black" style={{ color: "var(--text)" }}>
+                Thông tin cơ bản
+              </h3>
             </div>
 
             <div className="space-y-5">
               <div>
-                <label className="block text-sm font-black text-slate-700 mb-2">Tiêu đề bài báo</label>
+                <label className="block text-sm font-black mb-2" style={{ color: "var(--text)" }}>
+                  Tiêu đề bài báo
+                </label>
                 <input
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 outline-none"
+                  className="w-full px-4 py-2.5 rounded-xl text-sm outline-none"
                   placeholder="Nhập tiêu đề..."
+                  style={{
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "rgb(var(--primary-rgb) / 0.55)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-black text-slate-700 mb-2">Tóm tắt (Abstract)</label>
+                <label className="block text-sm font-black mb-2" style={{ color: "var(--text)" }}>
+                  Tóm tắt (Abstract)
+                </label>
                 <textarea
                   value={abstract}
                   onChange={(e) => setAbstract(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm min-h-[160px] resize-none focus:ring-2 focus:ring-rose-500/30 focus:border-rose-500 outline-none"
+                  className="w-full px-4 py-2.5 rounded-xl text-sm min-h-[160px] resize-none outline-none"
                   placeholder="Nhập tóm tắt..."
+                  style={{
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
+                    color: "var(--text)",
+                  }}
+                  onFocus={(e) => (e.currentTarget.style.borderColor = "rgb(var(--primary-rgb) / 0.55)")}
+                  onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-black text-slate-700 mb-2">Từ khóa (Keywords)</label>
+                <label className="block text-sm font-black mb-2" style={{ color: "var(--text)" }}>
+                  Từ khóa (Keywords)
+                </label>
 
-                <div className="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm flex flex-wrap gap-2 items-center focus-within:ring-2 focus-within:ring-rose-500/30 focus-within:border-rose-500">
+                <div
+                  className="w-full px-3 py-2 rounded-xl text-sm flex flex-wrap gap-2 items-center"
+                  style={{
+                    background: "var(--surface-2)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
                   {keywords.map((k) => (
                     <span
                       key={k}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-rose-50 text-rose-700 rounded-lg text-xs font-bold border border-rose-100"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black border"
+                      style={{
+                        background: "rgb(var(--primary-rgb) / 0.10)",
+                        borderColor: "rgb(var(--primary-rgb) / 0.22)",
+                        color: "var(--primary)",
+                      }}
                     >
                       {k}
                       <button
                         type="button"
                         onClick={() => removeKeyword(k)}
-                        className="material-symbols-outlined text-sm hover:text-rose-900"
+                        className="material-symbols-outlined text-sm"
+                        style={{ color: "var(--primary)" }}
                         title="Xóa"
                       >
                         close
@@ -393,28 +499,36 @@ const onSaveChanges = async (e) => {
                     value={kwInput}
                     onChange={(e) => setKwInput(e.target.value)}
                     onKeyDown={onKeyDownKeyword}
-                    className="flex-1 min-w-[140px] bg-transparent border-none p-1 text-sm focus:ring-0 outline-none"
+                    className="flex-1 min-w-[140px] bg-transparent border-none p-1 text-sm outline-none"
                     placeholder="Thêm từ khóa mới..."
+                    style={{ color: "var(--text)" }}
                   />
                 </div>
 
-                <p className="text-xs text-slate-400 mt-2 italic">Gợi ý: Nhấn Enter để thêm từ khóa.</p>
+                <p className="text-xs mt-2 italic" style={{ color: "var(--muted)" }}>
+                  Gợi ý: Nhấn Enter để thêm từ khóa.
+                </p>
               </div>
             </div>
           </section>
 
           {/* ===== Authors ===== */}
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-100">
+          <section className="rounded-2xl border shadow-sm p-6" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+            <div className="flex items-center justify-between pb-4 mb-6" style={{ borderBottom: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2">
-                <span className="material-symbols-outlined text-rose-600">groups</span>
-                <h3 className="text-lg font-black text-slate-900">Danh sách Tác giả</h3>
+                <span className="material-symbols-outlined" style={{ color: "var(--primary)" }}>
+                  groups
+                </span>
+                <h3 className="text-lg font-black" style={{ color: "var(--text)" }}>
+                  Danh sách Tác giả
+                </h3>
               </div>
 
               <button
                 type="button"
                 onClick={() => navigate(`/author/submissions/${paperId}/authors/new`)}
-                className="text-sm font-black text-rose-600 hover:underline flex items-center gap-1"
+                className="text-sm font-black hover:underline flex items-center gap-1"
+                style={{ color: "var(--primary)" }}
               >
                 <span className="material-symbols-outlined text-lg">person_add</span>
                 Thêm đồng tác giả
@@ -424,19 +538,19 @@ const onSaveChanges = async (e) => {
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead>
-                  <tr className="text-slate-500 font-black border-b border-slate-100">
-                    <th className="pb-3 px-2">Họ và tên</th>
-                    <th className="pb-3 px-2">Email</th>
-                    <th className="pb-3 px-2">Đơn vị công tác</th>
-                    <th className="pb-3 px-2 text-center">Vai trò</th>
-                    <th className="pb-3 px-2 text-right">Thao tác</th>
+                  <tr style={{ color: "var(--muted)" }}>
+                    <th className="pb-3 px-2 font-black">Họ và tên</th>
+                    <th className="pb-3 px-2 font-black">Email</th>
+                    <th className="pb-3 px-2 font-black">Đơn vị công tác</th>
+                    <th className="pb-3 px-2 text-center font-black">Vai trò</th>
+                    <th className="pb-3 px-2 text-right font-black">Thao tác</th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y" style={{ borderColor: "var(--border)" }}>
                   {authors.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-6 px-2 text-slate-500">
+                      <td colSpan={5} className="py-6 px-2" style={{ color: "var(--muted)" }}>
                         Chưa có tác giả.
                       </td>
                     </tr>
@@ -445,11 +559,24 @@ const onSaveChanges = async (e) => {
                       const isMain = !!a.is_corresponding;
                       return (
                         <tr key={a.id}>
-                          <td className="py-4 px-2 font-black text-slate-900">{a.full_name}</td>
-                          <td className="py-4 px-2 text-slate-600">{a.email}</td>
-                          <td className="py-4 px-2 text-slate-600">{a.organization || "--"}</td>
+                          <td className="py-4 px-2 font-black" style={{ color: "var(--text)" }}>
+                            {a.full_name}
+                          </td>
+                          <td className="py-4 px-2" style={{ color: "var(--muted)" }}>
+                            {a.email}
+                          </td>
+                          <td className="py-4 px-2" style={{ color: "var(--muted)" }}>
+                            {a.organization || "--"}
+                          </td>
                           <td className="py-4 px-2 text-center">
-                            <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-black uppercase">
+                            <span
+                              className="px-2 py-0.5 rounded text-[10px] font-black uppercase border"
+                              style={{
+                                background: "rgb(var(--primary-rgb) / 0.08)",
+                                borderColor: "rgb(var(--primary-rgb) / 0.20)",
+                                color: "var(--primary)",
+                              }}
+                            >
                               {isMain ? "Liên hệ" : "Đồng tác giả"}
                             </span>
                           </td>
@@ -457,11 +584,12 @@ const onSaveChanges = async (e) => {
                             <div className="flex items-center justify-end gap-2">
                               <button
                                 type="button"
-                                onClick={() =>
-                                  navigate(`/author/submissions/${paperId}/authors/${a.id}/edit?from=edit`)
-                                }
-                                className="text-amber-600 hover:bg-amber-50 p-2 rounded-lg"
+                                onClick={() => navigate(`/author/submissions/${paperId}/authors/${a.id}/edit?from=edit`)}
+                                className="p-2 rounded-lg transition disabled:opacity-50"
                                 title="Chỉnh sửa"
+                                style={{ color: "rgb(245 158 11 / 0.95)" }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(245 158 11 / 0.10)")}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                               >
                                 <span className="material-symbols-outlined">edit</span>
                               </button>
@@ -469,8 +597,11 @@ const onSaveChanges = async (e) => {
                               <button
                                 type="button"
                                 onClick={() => onDeleteAuthor(a.id)}
-                                className="text-rose-600 hover:bg-rose-50 p-2 rounded-lg"
+                                className="p-2 rounded-lg transition disabled:opacity-50"
                                 title="Xóa"
+                                style={{ color: "rgb(244 63 94 / 0.95)" }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(244 63 94 / 0.10)")}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                               >
                                 <span className="material-symbols-outlined">delete</span>
                               </button>
@@ -486,32 +617,51 @@ const onSaveChanges = async (e) => {
           </section>
 
           {/* ===== Document ===== */}
-          <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-            <div className="flex items-center gap-2 pb-4 mb-6 border-b border-slate-100">
-              <span className="material-symbols-outlined text-rose-600">upload_file</span>
-              <h3 className="text-lg font-black text-slate-900">Tài liệu bài báo</h3>
+          <section className="rounded-2xl border shadow-sm p-6" style={{ background: "var(--surface)", borderColor: "var(--border)" }}>
+            <div className="flex items-center gap-2 pb-4 mb-6" style={{ borderBottom: "1px solid var(--border)" }}>
+              <span className="material-symbols-outlined" style={{ color: "var(--primary)" }}>
+                upload_file
+              </span>
+              <h3 className="text-lg font-black" style={{ color: "var(--text)" }}>
+                Tài liệu bài báo
+              </h3>
             </div>
 
-            <div className="bg-rose-50/40 rounded-2xl p-6 border-2 border-dashed border-rose-200">
+            <div
+              className="rounded-2xl p-6 border-2 border-dashed"
+              style={{
+                background: "rgb(var(--primary-rgb) / 0.06)",
+                borderColor: "rgb(var(--primary-rgb) / 0.22)",
+              }}
+            >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="flex items-start gap-4">
-                  <div className="size-14 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                  <div
+                    className="size-14 rounded-xl flex items-center justify-center shrink-0 border"
+                    style={{
+                      background: "rgb(var(--primary-rgb) / 0.10)",
+                      borderColor: "rgb(var(--primary-rgb) / 0.20)",
+                      color: "var(--primary)",
+                    }}
+                  >
                     <span className="material-symbols-outlined text-3xl">picture_as_pdf</span>
                   </div>
 
                   <div>
-                    <h4 className="font-black text-slate-900">
+                    <h4 className="font-black" style={{ color: "var(--text)" }}>
                       {latestVersion?.file_name ||
                         latestVersion?.filename ||
                         latestVersion?.original_filename ||
                         "paper.pdf"}
                     </h4>
 
-                    <p className="text-sm text-slate-500 mt-1">
+                    <p className="text-sm mt-1" style={{ color: "var(--muted)" }}>
                       Phiên bản:{" "}
-                      <span className="font-semibold text-slate-700">v{latestVersion?.version_number ?? "--"}</span> •
-                      Ngày tải lên:{" "}
-                      <span className="font-semibold text-slate-700">
+                      <span className="font-semibold" style={{ color: "var(--text)" }}>
+                        v{latestVersion?.version_number ?? "--"}
+                      </span>{" "}
+                      • Ngày tải lên:{" "}
+                      <span className="font-semibold" style={{ color: "var(--text)" }}>
                         {formatDate(latestVersion?.created_at || paper?.updated_at || paper?.created_at)}
                       </span>
                     </p>
@@ -522,13 +672,16 @@ const onSaveChanges = async (e) => {
                           href={latestFileUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-xs font-black text-rose-600 flex items-center gap-1 hover:underline"
+                          className="text-xs font-black flex items-center gap-1 hover:underline"
+                          style={{ color: "var(--primary)" }}
                         >
                           <span className="material-symbols-outlined text-base">download</span>
                           Tải xuống bản này
                         </a>
                       ) : (
-                        <span className="text-xs text-slate-400">Chưa có file_url</span>
+                        <span className="text-xs" style={{ color: "var(--muted)" }}>
+                          Chưa có file_url
+                        </span>
                       )}
 
                       {latestFileUrl ? (
@@ -536,7 +689,8 @@ const onSaveChanges = async (e) => {
                           href={latestFileUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="text-xs font-black text-slate-600 flex items-center gap-1 hover:underline"
+                          className="text-xs font-black flex items-center gap-1 hover:underline"
+                          style={{ color: "var(--text)" }}
                         >
                           <span className="material-symbols-outlined text-base">visibility</span>
                           Xem trước
@@ -559,7 +713,14 @@ const onSaveChanges = async (e) => {
                     type="button"
                     disabled={busy}
                     onClick={() => fileRef.current?.click()}
-                    className="inline-flex items-center gap-2 px-6 py-2.5 bg-white border border-rose-400 text-rose-600 font-black rounded-xl hover:bg-rose-50 transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-2 px-6 py-2.5 font-black rounded-xl transition disabled:opacity-50"
+                    style={{
+                      background: "transparent",
+                      border: "1px solid rgb(var(--primary-rgb) / 0.35)",
+                      color: "var(--primary)",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.10)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
                     <span className="material-symbols-outlined">cloud_upload</span>
                     Tải lên phiên bản mới
@@ -568,7 +729,7 @@ const onSaveChanges = async (e) => {
               </div>
             </div>
 
-            <p className="text-xs text-slate-500 mt-4 px-1">
+            <p className="text-xs mt-4 px-1" style={{ color: "var(--muted)" }}>
               <strong>Lưu ý:</strong> Định dạng hỗ trợ: PDF. Dung lượng tối đa 20MB.
             </p>
           </section>
@@ -577,8 +738,11 @@ const onSaveChanges = async (e) => {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-2 pb-2">
             <button
               type="button"
-              onClick={() => navigate(`/author/submissions`)}
-              className="w-full sm:w-auto px-8 py-3 text-slate-600 font-black hover:text-slate-900 transition-colors flex items-center justify-center gap-2"
+              onClick={() => navigate(`/author/submissions/${paperId}`)}
+              className="w-full sm:w-auto px-8 py-3 font-black transition flex items-center justify-center gap-2 rounded-xl"
+              style={{ color: "var(--text)", border: "1px solid var(--border)", background: "transparent" }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.06)")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
               <span className="material-symbols-outlined">arrow_back</span>
               Hủy bỏ và Quay lại
@@ -589,7 +753,10 @@ const onSaveChanges = async (e) => {
                 type="button"
                 disabled={busy}
                 onClick={onSaveDraft}
-                className="w-full sm:w-auto px-8 py-3 border border-slate-300 text-slate-700 font-black rounded-xl hover:bg-slate-100 transition-colors disabled:opacity-50"
+                className="w-full sm:w-auto px-8 py-3 font-black rounded-xl transition disabled:opacity-50"
+                style={{ border: "1px solid var(--border)", color: "var(--text)", background: "transparent" }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.06)")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 Lưu nháp
               </button>
@@ -597,7 +764,12 @@ const onSaveChanges = async (e) => {
               <button
                 type="submit"
                 disabled={busy}
-                className="w-full sm:w-auto px-10 py-3 bg-rose-500 text-white font-black rounded-xl hover:bg-rose-600 transition-shadow shadow-lg shadow-rose-500/20 flex items-center justify-center gap-2 disabled:opacity-50"
+                className="w-full sm:w-auto px-10 py-3 font-black rounded-xl transition active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+                style={{
+                  background: "var(--primary)",
+                  color: "#fff",
+                  boxShadow: "0 10px 25px rgb(var(--primary-rgb) / 0.20)",
+                }}
               >
                 <span className="material-symbols-outlined">save</span>
                 Lưu thay đổi

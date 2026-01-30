@@ -1,17 +1,31 @@
 import os
 from fastapi import FastAPI
+import firebase_admin
+from firebase_admin import credentials
 
 from src.database import engine, SessionLocal
 from src import models
 from src.routers import auth, users
 from src.auth import get_password_hash
 
+# --- KHỞI TẠO FIREBASE ADMIN SDK ---
+# Lấy đường dẫn tuyệt đối đến file serviceAccountKey.json nằm cùng thư mục với main.py
+try:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    service_account_path = os.path.join(current_dir, "serviceAccountKey.json")
+    
+    cred = credentials.Certificate(service_account_path)
+    firebase_admin.initialize_app(cred)
+    print(f"--- Firebase Admin Initialized using: {service_account_path} ---")
+except Exception as e:
+    print(f"!!! WARNING: Could not initialize Firebase: {e}")
+# -----------------------------------
+
 app = FastAPI(title="UTH Conference Identity Service")
 app.include_router(auth.router)
 app.include_router(users.router)
 
 models.Base.metadata.create_all(bind=engine)
-
 
 def init_roles_and_admin():
     db = SessionLocal()
