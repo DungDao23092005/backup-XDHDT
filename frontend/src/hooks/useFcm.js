@@ -19,23 +19,26 @@ const useFcm = () => {
         if (permission === "granted") {
           console.log("Notification permission granted.");
 
-          // 1. Đăng ký Service Worker thủ công
-          let registration = null;
-          try {
-            registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-            console.log("✅ Service Worker registered.");
-          } catch (err) {
-            console.error("❌ Service Worker registration failed:", err);
-            return;
-          }
+          // 1. Đăng ký Service Worker
+          const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+          console.log("✅ Service Worker registered with scope:", registration.scope);
 
-          // 2. Đợi SW kích hoạt
+          // 2. Đợi SW active hẳn rồi mới gọi getToken
+          if (registration.installing) {
+             console.log("Service Worker installing... waiting.");
+             await new Promise(resolve => {
+                const sw = registration.installing;
+                sw.onstatechange = () => {
+                   if (sw.state === 'activated') resolve();
+                };
+             });
+          }
           await navigator.serviceWorker.ready;
 
-          // 3. Lấy Token với Key MỚI
+          // 3. Lấy Token với VAPID Key MỚI của bạn
           const token = await getToken(messaging, {
-            // Key mới của bạn đây:
-            vapidKey: "BB-r-75INh6rg9qcOr0vuK2xE5dCefQtuvbyn-ncwJvRL7G8Wf57LG9x2-9OZJD3hfEGv5BtTfN1W1rxzDa8Rg8",
+            // 👇 Dán key bạn vừa gửi vào đây:
+            vapidKey: "BIty8njvJWFg-vBic65UAcLJ0loo_32nCx9LWJoKQgxt-ccv5qdxcDY2_no6Tekl8rLigX94gUGcFFvUZBony_k", 
             serviceWorkerRegistration: registration 
           });
 
@@ -46,7 +49,7 @@ const useFcm = () => {
                await notificationApi.registerDevice(token);
                console.log("✅ Device registered with backend.");
             } catch (apiError) {
-               console.warn("Backend register skipped.");
+               console.warn("Backend register skipped:", apiError);
             }
           }
         } else {
@@ -54,6 +57,12 @@ const useFcm = () => {
         }
       } catch (error) {
         console.error("Error getting FCM token:", error);
+        // Nếu lỗi liên quan SW, thử xóa đi để lần sau chạy lại
+        if (error.message && error.message.includes("Service Worker")) {
+            navigator.serviceWorker.getRegistrations().then(regs => {
+                for(let reg of regs) reg.unregister();
+            });
+        }
       }
     };
 

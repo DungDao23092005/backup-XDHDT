@@ -6,19 +6,20 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 
-from src.deps import get_db
+# Import các module nội bộ
+from src.database import get_db
 from src import crud, schemas
 from src.models import AssignmentStatus
 from src.security.deps import get_current_payload, require_roles
-# Import client thông báo (đảm bảo bạn đã tạo file này ở bước trước)
-from src.utils.notification_client import send_notification
+
+# 👇 IMPORT HÀM GỬI THÔNG BÁO VỪA TẠO
+from src.services.notifier import send_notification_to_user
 
 router = APIRouter(prefix="/assignments", tags=["Assignments"])
 
-
 def _enum_value(x) -> str:
+    """Helper để lấy value từ Enum hoặc String"""
     return getattr(x, "value", str(x))
-
 
 @router.post(
     "/",
@@ -30,17 +31,24 @@ def create_assignment(
     background_tasks: BackgroundTasks,  # <--- Inject BackgroundTasks
     db: Session = Depends(get_db)
 ):
-    # 1. Tạo assignment trong DB
+    # 1. Kiểm tra logic nghiệp vụ (ví dụ: đã tồn tại chưa, COI không...)
+    # (Giả sử crud.create_assignment đã xử lý hoặc bạn thêm check ở đây)
+
+    # 2. Tạo assignment trong DB
     assignment = crud.create_assignment(db, data)
 
-    # 2. Gửi thông báo cho Reviewer (Chạy nền để không block response)
+    # 3. Gửi thông báo cho Reviewer (Chạy ngầm)
     if assignment:
+        # Nội dung thông báo
+        noti_title = "📝 Lời mời phản biện mới"
+        noti_body = f"Bạn nhận được lời mời phản biện cho bài báo #{assignment.paper_id}. Vui lòng kiểm tra hệ thống."
+
+        # Thêm vào hàng đợi xử lý ngầm (không bắt Chair phải chờ thông báo gửi xong mới nhận response)
         background_tasks.add_task(
-            send_notification,
+            send_notification_to_user,
             user_id=assignment.reviewer_id,
-            subject="Lời mời phản biện từ Ban tổ chức",
-            body=f"Bạn nhận được lời mời phản biện cho bài báo #{assignment.paper_id}. Vui lòng kiểm tra và phản hồi.",
-            paper_id=assignment.paper_id
+            title=noti_title,
+            body=noti_body
         )
 
     return assignment
@@ -59,10 +67,11 @@ def list_assignments(
 ):
     roles = set(payload.get("roles") or [])
     user_id = payload.get("user_id")
+    
     if not user_id:
         raise HTTPException(401, "Token missing user_id")
 
-    # reviewer chỉ xem assignment của mình
+    # Reviewer chỉ xem assignment của mình
     if "REVIEWER" in roles and "ADMIN" not in roles and "CHAIR" not in roles:
         reviewer_id = user_id
 
@@ -86,7 +95,7 @@ def get_assignment(
     roles = set(payload.get("roles") or [])
     user_id = payload.get("user_id")
 
-    # reviewer chỉ được xem assignment của mình
+    # Reviewer chỉ được xem assignment của mình
     if "REVIEWER" in roles and "ADMIN" not in roles and "CHAIR" not in roles:
         if obj.reviewer_id != user_id:
             raise HTTPException(403, "Not your assignment")
@@ -106,8 +115,7 @@ def update_assignment(
     payload=Depends(get_current_payload),
 ):
     """
-    REVIEWER: chỉ được update status = Accepted/Declined cho assignment của mình
-    CHAIR/ADMIN: được update các field theo schema (tuỳ bạn định nghĩa)
+    Update trạng thái hoặc thông tin assignment.
     """
     ass = crud.get_assignment(db, assignment_id)
     if not ass:
@@ -116,7 +124,7 @@ def update_assignment(
     roles = set(payload.get("roles") or [])
     user_id = payload.get("user_id")
 
-    # reviewer ownership check
+    # Reviewer ownership check
     if "REVIEWER" in roles and "ADMIN" not in roles and "CHAIR" not in roles:
         if ass.reviewer_id != user_id:
             raise HTTPException(403, "Not your assignment")
@@ -133,24 +141,24 @@ def update_assignment(
     if incoming_status is not None and incoming_status not in allowed:
         raise HTTPException(400, f"Invalid status '{incoming_status}'. Allowed: {sorted(list(allowed))}")
 
-    # reviewer chỉ được đổi status accept/decline
+    # Reviewer chỉ được đổi status Accepted/Declined
     if "REVIEWER" in roles and "ADMIN" not in roles and "CHAIR" not in roles:
         allowed_reviewer = {AssignmentStatus.ACCEPTED.value, AssignmentStatus.DECLINED.value}
         if incoming_status is None or incoming_status not in allowed_reviewer:
             raise HTTPException(403, "Reviewer can only set status to Accepted/Declined")
 
-    # business rules
+    # Business rules
     if incoming_status == AssignmentStatus.ACCEPTED.value:
-        # COI block
+        # Check Conflict of Interest (COI)
         if crud.has_open_coi(db, reviewer_id=ass.reviewer_id, paper_id=ass.paper_id):
             raise HTTPException(400, "COI declared: cannot accept this assignment")
 
-        # only Invited -> Accepted (optional strict)
+        # Only Invited -> Accepted
         if current_status not in (AssignmentStatus.INVITED.value, AssignmentStatus.ACCEPTED.value):
             raise HTTPException(400, f"Cannot accept from status {current_status}")
 
     if incoming_status == AssignmentStatus.COMPLETED.value:
-        # only Accepted -> Completed
+        # Only Accepted -> Completed
         if current_status != AssignmentStatus.ACCEPTED.value:
             raise HTTPException(400, "Only ACCEPTED assignments can be completed")
 
@@ -160,8 +168,10 @@ def update_assignment(
 
     enforced = schemas.AssignmentUpdate(**patch)
     updated = crud.update_assignment(db, assignment_id, enforced)
+    
     if not updated:
         raise HTTPException(404, "Assignment not found")
+        
     return updated
 
 
@@ -189,7 +199,7 @@ def accept_assignment(
         raise HTTPException(400, "COI declared: cannot accept this assignment")
 
     cur = _enum_value(ass.status)
-    if cur not in ("Invited", "Accepted"):
+    if cur not in (AssignmentStatus.INVITED.value, AssignmentStatus.ACCEPTED.value):
         raise HTTPException(400, f"Cannot accept from status {cur}")
 
     ass.status = AssignmentStatus.ACCEPTED

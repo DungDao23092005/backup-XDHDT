@@ -9,3 +9,5 @@ pydantic-settings==2.1.0
 requests==2.31.0
 cryptography
 redis>=5.0.0
+langchain-google-genai>=1.0.3
+langchain>=0.1.0

@@ -34,7 +34,7 @@ services:
     networks:
       - confms-network
 
-    # ==========================================
+  # ==========================================
   # 0.5. REDIS (CACHE)
   # ==========================================
   redis:
@@ -155,7 +155,8 @@ services:
       CACHE_PREFIX: notification-service
       CACHE_DEFAULT_TTL: ${CACHE_DEFAULT_TTL:-300}
       <<: *jwt_common
-      
+    volumes:
+      - ./backend/notification-service/serviceAccountKey.json:/app/serviceAccountKey.json
     networks:
       - confms-network
 

@@ -1,40 +1,16 @@
-# backend/notification-service/src/main.py
 import os
 import firebase_admin
 from firebase_admin import credentials
 from fastapi import FastAPI
+from dotenv import load_dotenv
 
-from src.database import engine, Base
-from src.routers import notifications
-from .database import engine, Base
-from .routers import notifications, prefs
-
-from src.database import engine
+# Import các module nội bộ
 from src import models
-from src.routers import notifications, prefs, fcm  # [MỚI] Import fcm
+from src.database import engine
+from src.routers import notifications, prefs, fcm
 
-# --- KHỞI TẠO FIREBASE ADMIN SDK ---
-try:
-    # Lấy đường dẫn tuyệt đối đến file serviceAccountKey.json nằm cùng thư mục với main.py
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    service_account_path = os.path.join(current_dir, "serviceAccountKey.json")
-    
-    if os.path.exists(service_account_path):
-        cred = credentials.Certificate(service_account_path)
-        # Kiểm tra xem app đã được init chưa để tránh lỗi ValueError
-        if not firebase_admin._apps:
-            firebase_admin.initialize_app(cred)
-        print(f"--- Notification Service: Firebase Admin Initialized using {service_account_path} ---")
-    else:
-         print(f"!!! WARNING: File serviceAccountKey.json NOT FOUND at {service_account_path}")
-         print("!!! Web Push Notifications will NOT work.")
-
-except Exception as e:
-    print(f"!!! WARNING: Could not initialize Firebase in Notification Service: {e}")
-# -----------------------------------
-
-# Tạo các bảng trong DB (bao gồm cả bảng UserDevice mới thêm)
-models.Base.metadata.create_all(bind=engine)
+# Load biến môi trường từ .env
+load_dotenv()
 
 app = FastAPI(
     title="UTH Conference Notification Service",
@@ -42,10 +18,43 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# --- KHỞI TẠO FIREBASE ADMIN SDK ---
+def init_firebase():
+    try:
+        # 1. Lấy đường dẫn từ .env (Ưu tiên số 1)
+        # Giá trị mặc định là "serviceAccountKey.json" nếu không tìm thấy biến env
+        cred_path = os.getenv("FIREBASE_CREDENTIALS_PATH", "serviceAccountKey.json")
+        
+        print(f"🔍 [Firebase Init] Đang tìm key tại: {cred_path}")
+
+        # 2. Kiểm tra file có tồn tại không
+        if not os.path.exists(cred_path):
+            print(f"❌ [Firebase Init] KHÔNG TÌM THẤY FILE tại: {cred_path}")
+            print("!!! Web Push Notifications sẽ KHÔNG hoạt động.")
+            return
+
+        # 3. Khởi tạo App (Tránh lỗi ValueError nếu init rồi)
+        if not firebase_admin._apps:
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+            print(f"✅ [Firebase Init] Thành công! Đã nạp key từ {cred_path}")
+        else:
+            print("ℹ️ [Firebase Init] App đã được khởi tạo trước đó.")
+
+    except Exception as e:
+        print(f"🔥 [Firebase Init] Lỗi ngoại lệ: {str(e)}")
+
+# Gọi hàm khởi tạo ngay
+init_firebase()
+# -----------------------------------
+
+# Tạo các bảng trong DB
+models.Base.metadata.create_all(bind=engine)
+
 # Đăng ký các Router
 app.include_router(notifications.router)
 app.include_router(prefs.router)
-app.include_router(fcm.router) # [MỚI] API quản lý thiết bị Push Notification
+app.include_router(fcm.router)
 
 @app.get("/")
 def root():
