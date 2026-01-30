@@ -4,6 +4,11 @@ import firebase_admin
 from firebase_admin import credentials
 from fastapi import FastAPI
 
+from src.database import engine, Base
+from src.routers import notifications
+from .database import engine, Base
+from .routers import notifications, prefs
+
 from src.database import engine
 from src import models
 from src.routers import notifications, prefs, fcm  # [MỚI] Import fcm

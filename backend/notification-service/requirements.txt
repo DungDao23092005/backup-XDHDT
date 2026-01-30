@@ -9,6 +9,9 @@ pydantic-settings
 email-validator 
 
 fastapi-mail
+redis>=5.0.0
+
+httpx 
 
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4

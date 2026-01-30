@@ -33,6 +33,12 @@ const authApi = {
   resetPassword: (data) => {
     return axiosClient.post("/identity/api/auth/reset-password", data);
   },
+  changePassword: (data) => {
+    return axiosClient.post("/identity/api/auth/change-password", data);
+  },
+  getUserById: (id) => {
+    return axiosClient.get(`/identity/api/users/${id}`);
+  },
 };
 
 export default authApi;

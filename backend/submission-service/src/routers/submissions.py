@@ -5,6 +5,7 @@ import json
 import httpx
 import os
 import shutil
+from datetime import datetime
 
 from .. import database, crud, schemas, exceptions, models
 from ..config import settings
@@ -60,7 +61,7 @@ def call_notification_service_task(payload: dict):
 # -----------------------------
 @router.get(
     "/open-for-bidding",
-    response_model=List[schemas.PaperResponse],
+    response_model=List[schemas.PaperBiddingResponse], 
     dependencies=[Depends(require_roles(["REVIEWER", "CHAIR", "ADMIN"]))],
 )
 def get_open_papers_for_bidding(
@@ -74,17 +75,7 @@ def get_open_papers_for_bidding(
     if not user_id:
         raise HTTPException(status_code=401, detail="Token missing user_id")
 
-    papers = (
-        db.query(models.Paper)
-        .options(
-            selectinload(models.Paper.authors),
-            selectinload(models.Paper.topics),
-            selectinload(models.Paper.versions),
-        )
-        .filter(models.Paper.status == models.PaperStatus.SUBMITTED)
-        .order_by(models.Paper.submitted_at.desc())
-        .all()
-    )
+    papers = crud.get_papers_for_bidding(db, exclude_submitter_id=user_id)
     return papers
 
 
@@ -464,3 +455,57 @@ def update_author(
         raise HTTPException(status_code=403, detail=e.message)
     except exceptions.BusinessRuleError as e:
         raise HTTPException(status_code=400, detail=e.message)
+
+
+
+# ============================================================
+# HÀM KIỂM TRA THỜI HẠN HỘI NGHỊ (INTERNAL CALL)
+# ============================================================
+def validate_conference_timeline(conference_id: int):
+    """
+    Gọi sang Conference Service để lấy start_date, end_date
+    và so sánh với thời gian hiện tại.
+    """
+    conf_service_url = getattr(settings, "CONFERENCE_SERVICE_URL", "http://conference-service:8000")
+    
+    try:
+    
+        response = httpx.get(f"{conf_service_url}/conferences/{conference_id}", timeout=5.0)
+        
+        # 1. Kiểm tra kết nối
+        if response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Hội nghị không tồn tại hoặc đã bị xóa.")
+        
+        if response.status_code != 200:
+            # Log warning nếu cần
+            print(f"[Warning] Không thể check timeline. Status: {response.status_code}")
+            return True             
+        conf_data = response.json()
+        
+        try:
+            start_str = str(conf_data.get("start_date", "")).replace("Z", "")
+            end_str = str(conf_data.get("end_date", "")).replace("Z", "")
+            
+            start_date = datetime.fromisoformat(start_str)
+            end_date = datetime.fromisoformat(end_str)
+        except (ValueError, TypeError):
+            print("[Warning] Lỗi format ngày tháng từ Conference Service")
+            return True
+
+        now = datetime.now()
+        if now < start_date:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Cổng nộp bài chưa mở (Bắt đầu: {start_date.strftime('%d/%m/%Y %H:%M')})"
+            )
+        
+        if now > end_date:
+             raise HTTPException(
+                status_code=400, 
+                detail=f"Đã hết hạn nộp bài (Hạn chót: {end_date.strftime('%d/%m/%Y %H:%M')})"
+            )
+
+        return True
+    except httpx.RequestError as e:
+        print(f"[Submission Service] Lỗi kết nối đến Conference Service: {str(e)}")
+        return True

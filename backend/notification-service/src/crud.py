@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
-from . import models, schemas
+from src import models, schemas
+from src.models import ReviewerInvitation
 
 def create_notification_log(db: Session, msg_data: schemas.NotificationRequest, sender_id: int = 0):
     new_msg = models.Message(
@@ -66,3 +67,62 @@ def mark_message_read(db: Session, message_id: int, receiver_id: int):
         db.commit()
         db.refresh(msg)
     return msg
+
+
+def create_reviewer_invitation(
+    db: Session,
+    conference_id: int,
+    conference_name: str,
+    reviewer_name: str,
+    description: str,
+    reviewer_email: str,
+    token: str
+):
+    invitation = ReviewerInvitation(
+        conference_id=conference_id,
+        conference_name=conference_name,
+        reviewer_name=reviewer_name,
+        description=description,
+        reviewer_email=reviewer_email,
+        status="PENDING",
+        token=token
+    )
+    db.add(invitation)
+    db.commit()
+    db.refresh(invitation)
+    return invitation
+
+
+def update_invitation_status(db, token, status):
+    invitation = db.query(ReviewerInvitation).filter_by(token=token).first()
+    if not invitation:
+        return None
+    invitation.status = status
+    db.commit()
+    return invitation
+
+def get_all_reviewer_invitations(db: Session):
+    return db.query(ReviewerInvitation).order_by(
+        ReviewerInvitation.id.desc()
+    ).all()
+
+def get_invitation_by_token(db: Session, token: str):
+    return (
+        db.query(ReviewerInvitation)
+        .filter(ReviewerInvitation.token == token)
+        .first()
+    )
+
+def delete_reviewer_invitation(db: Session, invitation_id: int) -> bool:
+    invitation = (
+        db.query(ReviewerInvitation)
+        .filter(ReviewerInvitation.id == invitation_id)
+        .first()
+    )
+
+    if not invitation:
+        return False
+
+    db.delete(invitation)
+    db.commit()
+    return True

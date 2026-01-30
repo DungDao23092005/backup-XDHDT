@@ -1,13 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from src.database import Base, engine
-
+from fastapi.staticfiles import StaticFiles
 # routers
 from src.conference.router import router as conference_router
 from src.conference.tracks.router import router as track_router
 from src.conference.topics.router import router as topic_router
+from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="UTH Conference Conference Service")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 origins = [
     "http://localhost:3000",      # React chạy local
@@ -27,13 +29,10 @@ app.add_middleware(
 def on_startup():
     Base.metadata.create_all(bind=engine)
 
-# include routers
-app.include_router(conference_router) 
-app.include_router(track_router) 
-app.include_router(topic_router)
-
-
-
 @app.get("/")
 def root():
-    return {"message": "Conference Service is running"}
+    return {"message": "Conference service running"}
+
+app.include_router(conference_router)
+app.include_router(track_router)
+app.include_router(topic_router)

@@ -20,6 +20,7 @@ from src.auth import (
     ALGORITHM,
     REFRESH_TOKEN_EXPIRE_DAYS
 )
+from src.dependencies import get_current_payload
 from src.utils.notification_client import send_email_via_notification_service
 
 router = APIRouter(
@@ -291,3 +292,31 @@ def verify_otp_endpoint(req: schemas.VerifyOtpRequest, db: Session = Depends(get
          raise HTTPException(status_code=400, detail="OTP Expired")
          
     return {"message": "OTP Valid", "token": req.otp}
+
+@router.post("/change-password")
+def change_password(
+    body: schemas.ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    payload = Depends(get_current_payload) # Bắt buộc phải có Token đăng nhập
+):
+    """
+    Đổi mật khẩu cho user đang đăng nhập.
+    Yêu cầu: Access Token hợp lệ.
+    """
+    # 1. Lấy User ID từ Token Payload
+    # Payload của bạn có 'user_id' hoặc 'id' (do create_access_token trong src/auth.py tạo ra)
+    user_id = payload.get("user_id") or payload.get("id")
+    
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Token invalid: Missing user_id")
+
+    # 2. Tìm user trong DB
+    user = crud.get_user_by_id(db, int(user_id))
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not verify_password(body.old_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Mật khẩu cũ không chính xác")
+    if body.old_password == body.new_password:
+        raise HTTPException(status_code=400, detail="Mật khẩu mới không được trùng với mật khẩu cũ")
+    crud.update_password(db, user.id, body.new_password)
+    return {"message": "Đổi mật khẩu thành công."}

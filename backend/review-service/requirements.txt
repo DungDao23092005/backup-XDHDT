@@ -8,4 +8,5 @@ pydantic-settings==2.3.4
 PyMySQL==1.1.0
 cryptography==42.0.8
 python-jose[cryptography]==3.3.0
-
+redis>=5.0.0
+httpx

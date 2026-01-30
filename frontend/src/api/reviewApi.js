@@ -45,7 +45,6 @@ const reviewApi = {
   listAssignments: (params = {}) => axiosClient.get("/review/assignments/", { params }),
 
   // My assignments: always filter by current logged-in user_id when available
-  // (nếu backend không dùng reviewerId/reviewer_id thì vẫn ok vì backend có thể ignore params)
   listMyAssignments: () => {
     const uid = getUserIdFromToken();
     return axiosClient.get("/review/assignments/", {
@@ -119,6 +118,13 @@ const reviewApi = {
   /* ================= PAPERS ================= */
   getPaperPdfUrlByAssignment: (assignmentId) =>
     axiosClient.get(`/review/papers/${assignmentId}/pdf-url`),
+
+  // ✅ [MỚI] Tải file PDF bảo mật (Stream)
+  downloadPaper: (assignmentId) => {
+    return axiosClient.get(`/review/papers/${assignmentId}/download`, {
+      responseType: 'blob', // Quan trọng: báo cho axios biết server trả về file binary
+    });
+  },
 
   /* ================= DISCUSSIONS ================= */
   listDiscussionsByPaper: (paperId) => axiosClient.get(`/review/discussions/paper/${paperId}`),

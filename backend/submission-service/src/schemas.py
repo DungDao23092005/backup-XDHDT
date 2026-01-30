@@ -135,3 +135,14 @@ class ConferenceExternalInfo(BaseModel):
 class PaperDecision(BaseModel):
     status: PaperStatus
     note: Optional[str] = None
+
+class PaperBiddingResponse(BaseModel):
+    id: int
+    title: str
+    abstract: str
+    keywords: List[str] = []
+    track_id: int
+    topics: List[PaperTopicResponse] = []
+    submitted_at: Optional[datetime] = None
+    class Config:
+        from_attributes = True

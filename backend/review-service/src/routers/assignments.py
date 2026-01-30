@@ -3,13 +3,15 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from src.deps import get_db
 from src import crud, schemas
 from src.models import AssignmentStatus
 from src.security.deps import get_current_payload, require_roles
+# Import client thông báo (đảm bảo bạn đã tạo file này ở bước trước)
+from src.utils.notification_client import send_notification
 
 router = APIRouter(prefix="/assignments", tags=["Assignments"])
 
@@ -23,8 +25,25 @@ def _enum_value(x) -> str:
     response_model=schemas.AssignmentOut,
     dependencies=[Depends(require_roles(["CHAIR", "ADMIN"]))],
 )
-def create_assignment(data: schemas.AssignmentCreate, db: Session = Depends(get_db)):
-    return crud.create_assignment(db, data)
+def create_assignment(
+    data: schemas.AssignmentCreate,
+    background_tasks: BackgroundTasks,  # <--- Inject BackgroundTasks
+    db: Session = Depends(get_db)
+):
+    # 1. Tạo assignment trong DB
+    assignment = crud.create_assignment(db, data)
+
+    # 2. Gửi thông báo cho Reviewer (Chạy nền để không block response)
+    if assignment:
+        background_tasks.add_task(
+            send_notification,
+            user_id=assignment.reviewer_id,
+            subject="Lời mời phản biện từ Ban tổ chức",
+            body=f"Bạn nhận được lời mời phản biện cho bài báo #{assignment.paper_id}. Vui lòng kiểm tra và phản hồi.",
+            paper_id=assignment.paper_id
+        )
+
+    return assignment
 
 
 @router.get(

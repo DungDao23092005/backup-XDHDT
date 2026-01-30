@@ -27,6 +27,10 @@ const notificationApi = {
     return res?.data ?? res;
   },
 
+
+
+  
+
   getUnreadCount: async () => {
     try {
       const items = await notificationApi.getMyInbox();
@@ -37,7 +41,8 @@ const notificationApi = {
     }
   },
 
-  // --- 2. Preferences (Cài đặt nhận thông báo) ---
+
+  // ✅ prefs
   getMyPrefs: async () => {
     const res = await axiosClient.get(`${NOTI_PREFIX}/api/notifications/prefs/me`);
     return res?.data ?? res;

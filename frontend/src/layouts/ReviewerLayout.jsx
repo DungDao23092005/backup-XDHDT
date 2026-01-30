@@ -60,6 +60,7 @@ export default function ReviewerLayout() {
             <nav className="flex flex-col gap-2">
               <NavItem to="/reviewer" icon="description" label="Bài báo chấm điểm" />
               <NavItem to="/reviewer/coi" icon="gavel" label="Khai báo COI" />
+              <NavItem to="/reviewer/notifications" icon="notifications" label="Thông báo" />
               <NavItem to="/reviewer/settings" icon="settings" label="Cài đặt" />
             </nav>
           </div>

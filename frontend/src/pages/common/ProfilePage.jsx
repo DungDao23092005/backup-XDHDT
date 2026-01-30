@@ -5,7 +5,7 @@ import axiosClient from "../../api/axiosClient";
 import { toast } from "react-toastify"; 
 
 export default function ProfilePage() {
-  const { user: contextUser, login } = useAuth(); // Lấy login để update context nếu cần
+  const { user: contextUser } = useAuth(); 
   
   // --- STATE DỮ LIỆU PROFILE (Lấy từ API) ---
   const [profileData, setProfileData] = useState(null);
@@ -31,11 +31,9 @@ export default function ProfilePage() {
   const fetchProfile = async () => {
     try {
       const res = await axiosClient.get("/identity/api/users/me");
-      // Dữ liệu mới nhất từ DB
       setProfileData(res); 
     } catch (error) {
       console.error("Lỗi lấy thông tin profile:", error);
-      // Nếu lỗi, fallback về user trong context
       setProfileData(contextUser);
     } finally {
       setLoadingProfile(false);
@@ -44,6 +42,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     fetchProfile();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Ưu tiên dùng dữ liệu từ API (profileData), nếu chưa có thì dùng contextUser
@@ -75,8 +74,6 @@ export default function ProfilePage() {
       await axiosClient.put("/identity/api/users/me", formData);
       toast.success("✅ Cập nhật hồ sơ thành công!");
       setShowEditModal(false);
-      
-      // Gọi lại API để cập nhật giao diện ngay lập tức
       await fetchProfile(); 
     } catch (error) {
       console.error(error);
@@ -91,10 +88,8 @@ export default function ProfilePage() {
     if (!newInterest.trim()) return;
     setSubmitting(true);
     try {
-      // Lấy danh sách hiện tại từ displayUser
       let currentInterests = displayUser?.research_interests;
       
-      // Fix lỗi: Đôi khi JSON trả về string thay vì array, cần parse
       if (typeof currentInterests === 'string') {
           try {
              currentInterests = JSON.parse(currentInterests);
@@ -113,8 +108,7 @@ export default function ProfilePage() {
       toast.success("✅ Đã thêm lĩnh vực nghiên cứu!");
       setNewInterest("");
       setShowInterestModal(false);
-      
-      await fetchProfile(); // Refresh lại data
+      await fetchProfile(); 
     } catch (error) {
       console.error(error);
       toast.error("❌ Lỗi khi thêm lĩnh vực.");
@@ -136,7 +130,7 @@ export default function ProfilePage() {
         research_interests: updatedInterests
       });
       toast.success("🗑️ Đã xóa.");
-      await fetchProfile(); // Refresh lại data
+      await fetchProfile(); 
     } catch (error) {
       toast.error("Lỗi khi xóa.");
     }
@@ -151,7 +145,12 @@ export default function ProfilePage() {
       
       {/* 1. HEADER CARD */}
       <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
-        <div className="h-32 bg-gradient-to-r from-primary/80 to-primary"></div>
+        {/* 🔥 ĐỔI MÀU: Dùng var(--primary) cho gradient */}
+        <div 
+          className="h-32"
+          style={{ background: "linear-gradient(to right, rgb(var(--primary-rgb) / 0.8), var(--primary))" }}
+        ></div>
+        
         <div className="px-8 pb-8 flex flex-col md:flex-row items-end gap-6 -mt-12">
           
           {/* --- AVATAR SECTION --- */}
@@ -164,7 +163,7 @@ export default function ProfilePage() {
           </div>
 
           <div className="flex-1 pb-2">
-            <div className="flex justify-between items-start">
+            <div className="flex justify-between items-end">
               <div>
                 <h1 className="text-2xl font-bold text-slate-900 dark:text-white">{displayUser?.full_name || "Chưa cập nhật tên"}</h1>
                 <p className="text-slate-500 flex items-center gap-1 mt-1 text-sm">
@@ -173,9 +172,11 @@ export default function ProfilePage() {
                 </p>
               </div>
               
+              {/* 🔥 ĐỔI MÀU: Nút Edit Profile */}
               <button 
                 onClick={handleOpenEdit}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-bold rounded-lg hover:bg-primary/90 shadow-md transition-all active:scale-95"
+                className="flex items-center gap-2 px-4 py-2 text-white text-sm font-bold rounded-lg shadow-md transition-all active:scale-95 hover:opacity-90"
+                style={{ backgroundColor: "var(--primary)" }}
               >
                 <span className="material-symbols-outlined text-base">edit</span>
                 Chỉnh sửa hồ sơ
@@ -192,7 +193,8 @@ export default function ProfilePage() {
           {/* 2. THÔNG TIN CHI TIẾT */}
           <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-800">
             <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">contact_page</span>
+              {/* 🔥 ĐỔI MÀU: Icon */}
+              <span className="material-symbols-outlined" style={{ color: "var(--primary)" }}>contact_page</span>
               Thông tin chi tiết
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -208,13 +210,16 @@ export default function ProfilePage() {
           <div className="bg-white dark:bg-slate-900 rounded-xl p-6 shadow-sm border border-slate-200 dark:border-slate-800">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-bold flex items-center gap-2">
-                <span className="material-symbols-outlined text-primary">biotech</span>
+                {/* 🔥 ĐỔI MÀU: Icon */}
+                <span className="material-symbols-outlined" style={{ color: "var(--primary)" }}>biotech</span>
                 Lĩnh vực nghiên cứu
               </h3>
               
+              {/* 🔥 ĐỔI MÀU: Nút Thêm mới */}
               <button 
                 onClick={() => setShowInterestModal(true)}
-                className="text-primary text-sm font-bold flex items-center gap-1 hover:bg-primary/5 px-2 py-1 rounded transition-colors"
+                className="text-sm font-bold flex items-center gap-1 px-2 py-1 rounded transition-colors"
+                style={{ color: "var(--primary)", backgroundColor: "rgb(var(--primary-rgb) / 0.05)" }}
               >
                 <span className="material-symbols-outlined text-sm">add</span> Thêm mới
               </button>
@@ -223,7 +228,16 @@ export default function ProfilePage() {
             <div className="flex flex-wrap gap-2">
               {Array.isArray(displayUser?.research_interests) && displayUser.research_interests.length > 0 ? (
                 displayUser.research_interests.map((tag, idx) => (
-                  <span key={idx} className="flex items-center gap-1 px-3 py-1.5 bg-primary/10 text-primary border border-primary/20 rounded-lg text-sm font-medium">
+                  <span 
+                    key={idx} 
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border"
+                    // 🔥 ĐỔI MÀU: Tag interests
+                    style={{
+                      backgroundColor: "rgb(var(--primary-rgb) / 0.1)",
+                      color: "var(--primary)",
+                      borderColor: "rgb(var(--primary-rgb) / 0.2)"
+                    }}
+                  >
                     {tag}
                     <button 
                       onClick={() => handleRemoveInterest(tag)}
@@ -258,8 +272,6 @@ export default function ProfilePage() {
               ))}
             </div>
           </div>
-
-          {/* ĐÃ XÓA KHỐI CÀI ĐẶT (EMAIL & PASSWORD) TẠI ĐÂY */}
         </div>
       </div>
 
@@ -280,7 +292,11 @@ export default function ProfilePage() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Họ và tên</label>
                   <input 
                     type="text" required
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-primary outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    // 🔥 ĐỔI MÀU: Focus border
+                    style={{ caretColor: "var(--primary)" }}
+                    onFocus={(e) => e.target.style.borderColor = "var(--primary)"}
+                    onBlur={(e) => e.target.style.borderColor = "#cbd5e1"} // slate-300
                     value={formData.full_name}
                     onChange={(e) => setFormData({...formData, full_name: e.target.value})}
                   />
@@ -298,7 +314,9 @@ export default function ProfilePage() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Số điện thoại</label>
                   <input 
                     type="text"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-primary outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onFocus={(e) => e.target.style.borderColor = "var(--primary)"}
+                    onBlur={(e) => e.target.style.borderColor = "#cbd5e1"}
                     value={formData.phone}
                     onChange={(e) => setFormData({...formData, phone: e.target.value})}
                   />
@@ -307,7 +325,9 @@ export default function ProfilePage() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Đơn vị công tác</label>
                   <input 
                     type="text"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-primary outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onFocus={(e) => e.target.style.borderColor = "var(--primary)"}
+                    onBlur={(e) => e.target.style.borderColor = "#cbd5e1"}
                     value={formData.organization}
                     onChange={(e) => setFormData({...formData, organization: e.target.value})}
                     placeholder="Ví dụ: Trường Đại học GTVT TP.HCM"
@@ -317,7 +337,9 @@ export default function ProfilePage() {
                   <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Phòng ban / Khoa</label>
                   <input 
                     type="text"
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-primary outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                    onFocus={(e) => e.target.style.borderColor = "var(--primary)"}
+                    onBlur={(e) => e.target.style.borderColor = "#cbd5e1"}
                     value={formData.department}
                     onChange={(e) => setFormData({...formData, department: e.target.value})}
                     placeholder="Ví dụ: Khoa CNTT"
@@ -327,7 +349,12 @@ export default function ProfilePage() {
 
               <div className="flex gap-3 pt-4">
                 <button type="button" onClick={() => setShowEditModal(false)} className="flex-1 px-4 py-2 rounded-lg border border-slate-300 text-slate-600 font-bold hover:bg-slate-50">Hủy</button>
-                <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 rounded-lg bg-primary text-white font-bold hover:bg-primary/90 disabled:opacity-70">
+                <button 
+                  type="submit" 
+                  disabled={submitting} 
+                  className="flex-1 px-4 py-2 rounded-lg text-white font-bold hover:opacity-90 disabled:opacity-70"
+                  style={{ backgroundColor: "var(--primary)" }}
+                >
                   {submitting ? "Đang lưu..." : "Lưu thay đổi"}
                 </button>
               </div>
@@ -346,13 +373,20 @@ export default function ProfilePage() {
                 type="text"
                 autoFocus
                 placeholder="Ví dụ: Machine Learning..."
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:border-primary outline-none mb-4 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                className="w-full px-3 py-2 rounded-lg border border-slate-300 focus:outline-none mb-4 dark:bg-slate-800 dark:border-slate-700 dark:text-white"
+                onFocus={(e) => e.target.style.borderColor = "var(--primary)"}
+                onBlur={(e) => e.target.style.borderColor = "#cbd5e1"}
                 value={newInterest}
                 onChange={(e) => setNewInterest(e.target.value)}
               />
               <div className="flex justify-end gap-2">
                 <button onClick={() => setShowInterestModal(false)} className="px-3 py-1.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded">Hủy</button>
-                <button onClick={handleAddInterest} disabled={submitting} className="px-3 py-1.5 text-sm font-bold bg-primary text-white rounded hover:bg-primary/90">
+                <button 
+                  onClick={handleAddInterest} 
+                  disabled={submitting} 
+                  className="px-3 py-1.5 text-sm font-bold text-white rounded hover:opacity-90"
+                  style={{ backgroundColor: "var(--primary)" }}
+                >
                   {submitting ? "..." : "Thêm"}
                 </button>
               </div>
@@ -389,11 +423,24 @@ function InfoItem({ label, value, verified }) {
 }
 
 function RoleBadge({ icon, title, desc, active }) {
+  // 🔥 ĐỔI MÀU: Logic badge động theo var(--primary)
+  const style = active ? {
+    backgroundColor: "rgb(var(--primary-rgb) / 0.05)",
+    borderColor: "rgb(var(--primary-rgb) / 0.2)"
+  } : {
+    backgroundColor: "var(--surface-2)", // fallback hoặc slate-50
+    borderColor: "var(--border)"
+  };
+
+  const textStyle = active ? { color: "var(--primary)" } : { color: "#64748b" }; // slate-500
+
   return (
-    <div className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${active ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'}`}>
-      <span className={`material-symbols-outlined ${active ? 'text-blue-600' : 'text-slate-400'}`}>{icon}</span>
+    <div className="flex items-center gap-3 px-4 py-3 rounded-xl border" style={style}>
+      <span className="material-symbols-outlined" style={textStyle}>
+        {icon}
+      </span>
       <div>
-        <p className={`text-sm font-bold ${active ? 'text-blue-700' : 'text-slate-700'}`}>{title}</p>
+        <p className="text-sm font-bold" style={textStyle}>{title}</p>
         <p className="text-[10px] text-slate-500">{desc}</p>
       </div>
     </div>

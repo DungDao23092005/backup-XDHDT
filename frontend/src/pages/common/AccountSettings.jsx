@@ -3,6 +3,7 @@ import React, { useMemo, useState } from "react";
 import { useUISettings } from "../../context/UISettingsContext";
 import { getResolvedTimeZone } from "../../utils/datetime";
 import { useT } from "../../hooks/useT";
+import authApi from "../../api/authApi";
 
 
 const ACCENT_COLORS = [
@@ -32,6 +33,7 @@ export default function AccountSettings() {
   } = useUISettings();
 
   const t = useT();
+  const [showPwdModal, setShowPwdModal] = useState(false);
 
   // ----- draft state -----
   const [draft, setDraft] = useState(() => ({
@@ -274,15 +276,15 @@ export default function AccountSettings() {
             <div className="p-6 space-y-6">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                  <p className="font-bold" style={{ color: "var(--text)" }}>
-                    Mật khẩu
-                  </p>
+                  <p className="font-bold" style={{ color: "var(--text)" }}>Mật khẩu</p>
                   <p className="text-sm" style={{ color: "var(--muted)" }}>
                     Thay đổi mật khẩu định kỳ để bảo vệ tài khoản của bạn.
                   </p>
                 </div>
+                
                 <button
                   type="button"
+                  onClick={() => setShowPwdModal(true)}
                   className="px-4 py-2 rounded-lg text-sm font-bold transition-colors border"
                   style={{
                     background: "var(--surface-2)",
@@ -291,7 +293,6 @@ export default function AccountSettings() {
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.06)")}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-                  onClick={() => alert("Backend đổi mật khẩu sẽ làm sau")}
                 >
                   Đổi mật khẩu
                 </button>
@@ -352,6 +353,13 @@ export default function AccountSettings() {
           </button>
         </div>
       </div>
+
+      {showPwdModal && (
+        <ChangePasswordModal 
+          onClose={() => setShowPwdModal(false)} 
+          accentHex={accentHex} 
+        />
+      )}
     </div>
   );
 }
@@ -478,6 +486,149 @@ function ToggleRow({ title, desc, checked, onChange, accentHex }) {
           }}
         />
       </button>
+    </div>
+  );
+}
+
+// Đặt cái này ở cuối file AccountSettings.jsx
+function ChangePasswordModal({ onClose, accentHex }) {
+  const [form, setForm] = useState({ oldPass: "", newPass: "", confirmPass: "" });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setSuccess(false);
+
+    // 1. Validate Frontend
+    if (!form.oldPass || !form.newPass || !form.confirmPass) {
+      return setError("Vui lòng nhập đầy đủ các trường.");
+    }
+    if (form.newPass !== form.confirmPass) {
+      return setError("Mật khẩu xác nhận không khớp.");
+    }
+    if (form.newPass.length < 6) {
+      return setError("Mật khẩu mới phải có ít nhất 6 ký tự.");
+    }
+    if (form.oldPass === form.newPass) {
+        return setError("Mật khẩu mới không được trùng với mật khẩu cũ.");
+    }
+
+    // 2. Gọi API
+    try {
+      setLoading(true);
+      await authApi.changePassword({
+        old_password: form.oldPass,
+        new_password: form.newPass,
+      });
+      
+      setSuccess(true);
+      // Tự động đóng sau 1.5s nếu thành công
+      setTimeout(() => {
+        onClose();
+      }, 1500);
+    } catch (err) {
+      console.error(err);
+      // Hiển thị lỗi từ Backend (ví dụ: Mật khẩu cũ sai)
+      setError(err?.response?.data?.detail || "Đổi mật khẩu thất bại.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4">
+      {/* Backdrop làm mờ nền */}
+      <div 
+        className="absolute inset-0 bg-black/50 backdrop-blur-sm transition-opacity" 
+        onClick={onClose}
+      />
+
+      {/* Nội dung Modal */}
+      <div 
+        className="relative w-full max-w-md rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200"
+        style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+      >
+        <div className="p-6">
+          <h3 className="text-xl font-bold mb-1" style={{ color: "var(--text)" }}>Đổi mật khẩu</h3>
+          <p className="text-sm mb-6" style={{ color: "var(--muted)" }}>Bảo vệ tài khoản của bạn bằng mật khẩu mạnh.</p>
+
+          {/* Thông báo lỗi/thành công */}
+          {error && (
+            <div className="mb-4 p-3 rounded-lg text-sm font-medium bg-red-50 text-red-600 border border-red-100 flex items-center gap-2">
+              <span className="material-symbols-outlined text-lg">error</span>
+              {error}
+            </div>
+          )}
+
+          {success && (
+            <div className="mb-4 p-3 rounded-lg text-sm font-medium bg-green-50 text-green-600 border border-green-100 flex items-center gap-2">
+              <span className="material-symbols-outlined text-lg">check_circle</span>
+              Đổi mật khẩu thành công!
+            </div>
+          )}
+
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-semibold mb-1" style={{ color: "var(--text)" }}>Mật khẩu hiện tại</label>
+              <input
+                type="password"
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none border transition-colors focus:ring-2"
+                style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text)" }}
+                value={form.oldPass}
+                onChange={(e) => setForm({ ...form, oldPass: e.target.value })}
+                placeholder="••••••"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-1" style={{ color: "var(--text)" }}>Mật khẩu mới</label>
+              <input
+                type="password"
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none border transition-colors focus:ring-2"
+                style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text)" }}
+                value={form.newPass}
+                onChange={(e) => setForm({ ...form, newPass: e.target.value })}
+                placeholder="Ít nhất 6 ký tự"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold mb-1" style={{ color: "var(--text)" }}>Nhập lại mật khẩu mới</label>
+              <input
+                type="password"
+                className="w-full px-3 py-2 rounded-lg text-sm outline-none border transition-colors focus:ring-2"
+                style={{ background: "var(--surface-2)", borderColor: "var(--border)", color: "var(--text)" }}
+                value={form.confirmPass}
+                onChange={(e) => setForm({ ...form, confirmPass: e.target.value })}
+                placeholder="••••••"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-lg text-sm font-bold border transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+                style={{ borderColor: "var(--border)", color: "var(--muted)" }}
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                disabled={loading || success}
+                className="px-4 py-2 rounded-lg text-white text-sm font-bold transition-transform active:scale-95 disabled:opacity-70 disabled:cursor-not-allowed"
+                style={{ background: accentHex }}
+              >
+                {loading ? "Đang xử lý..." : "Cập nhật"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   );
 }

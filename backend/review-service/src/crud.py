@@ -167,3 +167,39 @@ def list_discussions(db: Session, paper_id: int):
         .order_by(models.ReviewDiscussion.sent_at.asc())
         .all()
     )
+
+# =========================================================
+# ✅ NEW: REBUTTALS & EVALUATIONS CRUD
+# =========================================================
+
+# -------- Rebuttals --------
+def create_rebuttal(db: Session, data: schemas.RebuttalCreate, author_id: int) -> models.Rebuttal:
+    # Kiểm tra xem đã có rebuttal chưa (mỗi bài 1 cái)
+    existing = db.query(models.Rebuttal).filter(models.Rebuttal.paper_id == data.paper_id).first()
+    if existing:
+        raise ValueError("Rebuttal already exists for this paper")
+        
+    obj = models.Rebuttal(
+        paper_id=data.paper_id,
+        author_id=author_id,
+        content=data.content
+    )
+    db.add(obj); db.commit(); db.refresh(obj)
+    return obj
+
+def get_rebuttal_by_paper(db: Session, paper_id: int):
+    return db.query(models.Rebuttal).filter(models.Rebuttal.paper_id == paper_id).first()
+
+# -------- Review Evaluations --------
+def create_review_evaluation(db: Session, review_id: int, data: schemas.EvaluationCreate, chair_id: int):
+    obj = models.ReviewEvaluation(
+        review_id=review_id,
+        chair_id=chair_id,
+        rating=data.rating,
+        comment=data.comment
+    )
+    db.add(obj); db.commit(); db.refresh(obj)
+    return obj
+
+def list_review_evaluations(db: Session, review_id: int):
+    return db.query(models.ReviewEvaluation).filter(models.ReviewEvaluation.review_id == review_id).all()

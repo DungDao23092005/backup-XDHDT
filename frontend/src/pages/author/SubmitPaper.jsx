@@ -195,6 +195,8 @@ export default function SubmitPaper() {
   const [loadingConf, setLoadingConf] = useState(false);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [loadingTopics, setLoadingTopics] = useState(false);
+  const [isConferenceActive, setIsConferenceActive] = useState(true);
+  const [dateError, setDateError] = useState("");
 
   // 1) load conferences
   useEffect(() => {
@@ -270,6 +272,34 @@ export default function SubmitPaper() {
     })();
   }, [trackId]);
 
+
+  useEffect(() => {
+  if (!conferenceId || conferences.length === 0) {
+    setIsConferenceActive(true);
+    setDateError("");
+    return;
+  }
+
+  const selectedConf = conferences.find((c) => String(c.id) === String(conferenceId));
+
+  if (selectedConf) {
+    const now = new Date();
+    const start = selectedConf.start_date ? new Date(selectedConf.start_date) : null;
+    const end = selectedConf.end_date ? new Date(selectedConf.end_date) : null;
+
+    if (start && now < start) {
+      setIsConferenceActive(false);
+      setDateError(`Chưa mở nộp bài (Bắt đầu: ${start.toLocaleDateString("vi-VN")})`);
+    } else if (end && now > end) {
+      setIsConferenceActive(false);
+      setDateError(`Đã hết hạn nộp bài (Đóng: ${end.toLocaleDateString("vi-VN")})`);
+    } else {
+      setIsConferenceActive(true);
+      setDateError("");
+    }
+  }
+}, [conferenceId, conferences]);
+
   // restore draft
   useEffect(() => {
     try {
@@ -298,6 +328,7 @@ export default function SubmitPaper() {
   const progressPct = useMemo(() => (step - 1) / 3, [step]);
 
   const canNext = useMemo(() => {
+    if (!isConferenceActive) return false;
     if (step === 1) {
       return conferenceId && trackId && title.trim() && abstract.trim() && keywords.length > 0;
     }
@@ -474,6 +505,12 @@ export default function SubmitPaper() {
                         </option>
                       ))}
                     </SelectBase>
+                    {!isConferenceActive && dateError && (
+                      <div className="text-xs font-bold flex items-center gap-1" style={{ color: "rgb(239 68 68)" }}>
+                        <span className="material-symbols-outlined text-sm">error</span>
+                        {dateError}
+                      </div>
+                    )}
                   </div>
 
                   {/* Track */}

@@ -507,3 +507,25 @@ def update_author(db: Session, paper_id: int, author_id: int, submitter_id: int,
     db.commit()
     db.refresh(author)
     return author
+
+def get_papers_for_bidding(db: Session, exclude_submitter_id: int = None) -> list[models.Paper]:
+    """
+    Lấy danh sách bài cho Reviewer chọn (Bidding).
+    - Status: SUBMITTED
+    - Exclude: Bài do chính reviewer đó nộp (tránh COI trực tiếp)
+    - Relations: Chỉ load Topics, KHÔNG load Authors.
+    """
+    query = (
+        db.query(models.Paper)
+        .options(
+            selectinload(models.Paper.topics), # Chỉ cần Topics để Reviewer xem chuyên môn
+            # KHÔNG load authors, versions để nhẹ query và bảo mật
+        )
+        .filter(models.Paper.status == models.PaperStatus.SUBMITTED)
+    )
+
+    # Nếu Reviewer cũng là tác giả nộp bài, ẩn bài của họ đi
+    if exclude_submitter_id:
+        query = query.filter(models.Paper.submitter_id != exclude_submitter_id)
+
+    return query.order_by(desc(models.Paper.submitted_at)).all()

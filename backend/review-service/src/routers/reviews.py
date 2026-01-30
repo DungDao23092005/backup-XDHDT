@@ -3,13 +3,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from src.deps import get_db
 from src import crud, schemas
 from src.models import AssignmentStatus
 from src.security.deps import get_current_payload, require_roles
+from src.utils.notification_client import send_notification  # Import client thông báo
 
 router = APIRouter(prefix="/reviews", tags=["Reviews"])
 
@@ -213,6 +214,7 @@ def submit_review(
     db.refresh(rev)
     return rev
 
+
 @router.patch(
     "/{review_id}/criterias/{criteria_id}",
     response_model=schemas.ReviewCriteriaOut,
@@ -249,3 +251,45 @@ def update_criteria(
     if not updated:
         raise HTTPException(404, "Criteria not found")
     return updated
+
+
+# =========================================================
+# ✅ NEW: REVIEW EVALUATIONS (Chair chấm điểm Reviewer)
+# =========================================================
+
+@router.post(
+    "/{review_id}/evaluations",
+    response_model=schemas.EvaluationOut,
+    dependencies=[Depends(require_roles(["CHAIR", "ADMIN"]))],
+)
+def evaluate_review(
+    review_id: int,
+    data: schemas.EvaluationCreate,
+    background_tasks: BackgroundTasks,  # Inject BackgroundTasks
+    db: Session = Depends(get_db),
+    payload=Depends(get_current_payload),
+):
+    """
+    Chair đánh giá chất lượng bài review của Reviewer.
+    Hệ thống sẽ gửi thông báo cho Reviewer.
+    """
+    user_id = payload.get("user_id")
+    
+    rev = crud.get_review(db, review_id)
+    if not rev:
+        raise HTTPException(404, "Review not found")
+        
+    evaluation = crud.create_review_evaluation(db, review_id, data, chair_id=user_id)
+    
+    # Gửi thông báo cho Reviewer
+    ass = crud.get_assignment(db, rev.assignment_id)
+    if ass:
+        background_tasks.add_task(
+            send_notification,
+            user_id=ass.reviewer_id,
+            subject="Phản hồi về bài đánh giá của bạn",
+            body=f"Ban chương trình đã nhận xét về bài review (ID: {review_id}). Nội dung: {data.comment[:100]}...",
+            paper_id=ass.paper_id
+        )
+        
+    return evaluation

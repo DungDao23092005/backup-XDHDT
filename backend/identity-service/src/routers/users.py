@@ -169,3 +169,11 @@ def delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     return {"message": "User deleted successfully"}
+
+
+@router.get("/{user_id}", response_model=schemas.UserResponse)
+def get_user_public_info(user_id: int, db: Session = Depends(get_db)):
+    db_user = crud.get_user_by_id(db, user_id=user_id)
+    if db_user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return db_user

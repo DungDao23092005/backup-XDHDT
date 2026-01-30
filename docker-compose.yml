@@ -34,6 +34,24 @@ services:
     networks:
       - confms-network
 
+    # ==========================================
+  # 0.5. REDIS (CACHE)
+  # ==========================================
+  redis:
+    image: redis:7-alpine
+    container_name: confms_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    networks:
+      - confms-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+
+
   # ==========================================
   # 1. SUBMISSION SERVICE
   # ==========================================
@@ -67,6 +85,8 @@ services:
         condition: service_healthy
       identity-service:
         condition: service_started
+      redis:
+        condition: service_healthy
     env_file:
       - ./.env
       - ./backend/submission-service/.env
@@ -78,6 +98,11 @@ services:
       CONFERENCE_SERVICE_URL: http://conference-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
+
+      CACHE_TYPE: redis
+      REDIS_URL: redis://redis:6379/0
+      CACHE_PREFIX: submission-service
+      CACHE_DEFAULT_TTL: ${CACHE_DEFAULT_TTL:-300}
       <<: *jwt_common
     volumes:
       - ./backend/submission-service/uploads:/app/uploads
@@ -115,6 +140,8 @@ services:
     depends_on:
       notification-db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - ./.env
       - ./backend/notification-service/.env
@@ -122,7 +149,13 @@ services:
       INTERNAL_KEY: ${INTERNAL_KEY}
       SECRET_KEY: ${JWT_SECRET_KEY}
       DATABASE_URL: mysql+pymysql://root:root@notification-db:3306/notification_db
+
+      CACHE_TYPE: redis
+      REDIS_URL: redis://redis:6379/0
+      CACHE_PREFIX: notification-service
+      CACHE_DEFAULT_TTL: ${CACHE_DEFAULT_TTL:-300}
       <<: *jwt_common
+      
     networks:
       - confms-network
 
@@ -161,6 +194,8 @@ services:
         condition: service_healthy
       identity-service:
         condition: service_started
+      redis:
+        condition: service_healthy
     env_file:
       - ./.env
       - ./backend/conference-service/.env
@@ -171,6 +206,11 @@ services:
       REVIEW_SERVICE_URL: http://review-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
+
+      CACHE_TYPE: redis
+      REDIS_URL: redis://redis:6379/0
+      CACHE_PREFIX: conference-service
+      CACHE_DEFAULT_TTL: 300
       <<: *jwt_common
     networks:
       - confms-network
@@ -206,13 +246,19 @@ services:
     depends_on:
       intelligent-db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - ./.env
       - ./backend/intelligent-service/.env
     environment:
       DATABASE_URL: mysql+pymysql://root:root@intelligent-db:3306/intelligent_db
+
+      CACHE_TYPE: redis
+      REDIS_URL: redis://redis:6379/0
+      CACHE_PREFIX: intelligent-service
+      CACHE_DEFAULT_TTL: ${CACHE_DEFAULT_TTL:-300}
       <<: *jwt_common
-    # [QUAN TRỌNG] Tắt chế độ reload để tránh lỗi tràn RAM (Errno 12)
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     volumes:
       - ./backend/intelligent-service/src:/app/src
@@ -256,6 +302,8 @@ services:
         condition: service_started
       identity-service:
         condition: service_started
+      redis:
+        condition: service_healthy
     env_file:
       - ./.env
       - ./backend/review-service/.env
@@ -266,6 +314,11 @@ services:
       CONFERENCE_SERVICE_URL: http://conference-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
+
+      CACHE_TYPE: redis
+      REDIS_URL: redis://redis:6379/0
+      CACHE_PREFIX: review-service
+      CACHE_DEFAULT_TTL: ${CACHE_DEFAULT_TTL:-300}
       <<: *jwt_common
     networks:
       - confms-network
@@ -281,7 +334,7 @@ services:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: identity_db
     ports:
-      - "3306:3306"
+      - "3312:3306"
     volumes:
       - identity_db_data:/var/lib/mysql
     networks:
@@ -299,6 +352,8 @@ services:
     depends_on:
       identity-db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
       - "8005:8000"
     environment:
@@ -313,6 +368,12 @@ services:
       ADMIN_EMAIL: admin@uth.edu.vn
       ADMIN_PASSWORD: 123456
       ADMIN_NAME: System Administrator
+
+      CACHE_TYPE: redis
+      REDIS_URL: redis://redis:6379/0
+      CACHE_PREFIX: identity-service
+      CACHE_DEFAULT_TTL: ${CACHE_DEFAULT_TTL:-300}
+      <<: *jwt_common
     networks:
       - confms-network
 

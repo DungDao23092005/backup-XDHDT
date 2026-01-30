@@ -13,6 +13,7 @@ export default function AssignmentDetail() {
   // --- UI STATE ---
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [downloading, setDownloading] = useState(false); // Trạng thái tải file
   
   // --- DATA STATE ---
   const [assignment, setAssignment] = useState(null);
@@ -102,6 +103,7 @@ export default function AssignmentDetail() {
         // LƯU Ý: Cổng port API phải khớp với backend của bạn (thường là 8000 hoặc 8080)
         // Đây là gọi trực tiếp axios vì chưa thêm vào reviewApi
         const token = localStorage.getItem("token"); // Hoặc lấy từ user context
+        // TODO: Nên chuyển API này vào reviewApi.js để quản lý tập trung
         await axios.post("http://localhost:8080/review/extensions/", {
             assignment_id: Number(assignmentId),
             requested_date: new Date(extDate).toISOString(),
@@ -119,6 +121,37 @@ export default function AssignmentDetail() {
         toast.error("Gửi yêu cầu thất bại: " + (e.response?.data?.detail || e.message));
     } finally {
         setRequesting(false);
+    }
+  };
+
+  // --- 4. HANDLER: TẢI PDF (MỚI) ---
+  const handleDownloadPdf = async () => {
+    try {
+      setDownloading(true);
+      const response = await reviewApi.downloadPaper(assignmentId);
+      
+      // Tạo URL tạm từ blob
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Đặt tên file
+      const filename = `Assignment_${assignmentId}_Paper.pdf`;
+      link.setAttribute('download', filename); 
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      // Dọn dẹp
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      
+      toast.success("Tải file thành công!");
+    } catch (error) {
+      console.error("Download error:", error);
+      toast.error("Không thể tải file PDF. Vui lòng thử lại sau.");
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -231,15 +264,45 @@ export default function AssignmentDetail() {
 
         <div className="flex items-center gap-3">
           {!submitted ? (
-            <button
-              onClick={() => navigate(`/reviewer/review/${assignmentId}`)}
-              className="flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white font-bold py-2.5 px-5 rounded-lg text-sm transition-all shadow-sm"
-            >
-              <span className="material-symbols-outlined text-lg">rate_review</span>
-              Đi tới workspace
-            </button>
+            <div className="flex gap-2">
+                {/* NÚT TẢI PDF */}
+                <button
+                    onClick={handleDownloadPdf}
+                    disabled={downloading}
+                    className="flex items-center justify-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-sm transition-all shadow-sm disabled:opacity-70"
+                >
+                    {downloading ? (
+                        <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                    ) : (
+                        <span className="material-symbols-outlined text-lg">download</span>
+                    )}
+                    {downloading ? "Đang tải..." : "Tải bài báo"}
+                </button>
+
+                <button
+                  onClick={() => navigate(`/reviewer/review/${assignmentId}`)}
+                  className="flex items-center justify-center gap-2 bg-primary hover:bg-primary/90 text-white font-bold py-2.5 px-5 rounded-lg text-sm transition-all shadow-sm"
+                >
+                  <span className="material-symbols-outlined text-lg">rate_review</span>
+                  Đi tới workspace
+                </button>
+            </div>
           ) : (
             <div className="flex gap-2">
+                {/* NÚT TẢI PDF (Khi đã nộp vẫn tải được) */}
+                <button
+                    onClick={handleDownloadPdf}
+                    disabled={downloading}
+                    className="flex items-center justify-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-4 rounded-lg text-sm transition-all shadow-sm disabled:opacity-70"
+                >
+                    {downloading ? (
+                        <span className="material-symbols-outlined animate-spin text-lg">progress_activity</span>
+                    ) : (
+                        <span className="material-symbols-outlined text-lg">download</span>
+                    )}
+                    {downloading ? "..." : "Tải bài báo"}
+                </button>
+
                 {/* Nút Sửa: Chỉ hiện khi chưa quá hạn */}
                 {deadlineInfo && !deadlineInfo.isOverdue && (
                     <button
@@ -251,14 +314,6 @@ export default function AssignmentDetail() {
                         Sửa bài chấm
                     </button>
                 )}
-
-                <button
-                  className="flex items-center justify-center gap-2 bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 font-bold py-2.5 px-5 rounded-lg text-sm transition-all shadow-sm"
-                  onClick={() => window.print()}
-                >
-                  <span className="material-symbols-outlined text-lg">picture_as_pdf</span>
-                  In / Xuất PDF
-                </button>
             </div>
           )}
         </div>

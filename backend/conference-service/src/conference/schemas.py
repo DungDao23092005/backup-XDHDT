@@ -30,3 +30,5 @@ class ConferenceUpdateResult(BaseModel):
 class ConferenceDeleteResult(BaseModel):
     message: str
     deleted_conference: ConferenceResponse
+
+

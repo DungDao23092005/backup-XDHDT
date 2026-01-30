@@ -2,6 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from sqlalchemy.orm import Session
 from src.database import get_db
 from src.conference.models import Conference
+
+from datetime import time, date, datetime
+from uuid import uuid4
+
 from src.conference.schemas import ConferenceDeleteResult
 from sqlalchemy import text
 from datetime import time , date, datetime
@@ -13,20 +17,52 @@ from src.conference.schemas import (
     ConferenceUpdateResult
 )
 from fastapi import UploadFile, File, Form
-import os, shutil
-from src.security.deps import get_current_payload, require_roles
 
-def get_conference_status(conference):
+import os, shutil
+
+from src.security.deps import require_roles
+
+# =========================
+# ROUTER
+# =========================
+router = APIRouter(prefix="/api/conferences", tags=["Conferences"])
+
+# =========================
+# STATIC / UPLOAD CONFIG
+# =========================
+STATIC_DIR = "static"
+LOGO_DIR = os.path.join(STATIC_DIR, "conference_logos")
+os.makedirs(LOGO_DIR, exist_ok=True)
+
+# =========================
+# HELPER FUNCTIONS
+# =========================
+def save_logo(file: UploadFile) -> str:
+    """
+    Save logo file and return public URL path
+    """
+    ext = file.filename.split(".")[-1]
+    filename = f"{uuid4().hex}.{ext}"
+    file_path = os.path.join(LOGO_DIR, filename)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # frontend dùng trực tiếp
+    return f"/static/conference_logos/{filename}"
+
+
+def get_conference_status(conference: Conference) -> str:
     now = datetime.now()
 
     start = conference.start_date
     end = conference.end_date
 
-    # ⛔ Chưa thiết lập thời gian
+
     if not start or not end:
         return "unknown"
 
-    # nếu DB lưu DATE thì convert sang DATETIME
+
     if not isinstance(start, datetime):
         start = datetime.combine(start, time.min)
 
@@ -39,13 +75,13 @@ def get_conference_status(conference):
         return "ended"
     return "ongoing"
 
-router = APIRouter(prefix="/conferences", tags=["Conferences"])
 
-# =========================
-# CONFIG UPLOAD
-# =========================
-UPLOAD_DIR = "static/conference_logos"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+
+
+
+
+
 
 
 # =========================
@@ -63,7 +99,7 @@ def get_conferences(db: Session = Depends(get_db)):
             "logo": c.logo,
             "start_date": c.start_date,
             "end_date": c.end_date,
-            "status": get_conference_status(c)   # 👈 THÊM
+            "status": get_conference_status(c),
         }
         for c in conferences
     ]
@@ -77,32 +113,21 @@ def create_conference(
     name: str = Form(...),
     description: str | None = Form(None),
 
-    start_date: date = Form(
-        ...,
-        description="Start date (format: YYYY-MM-DD)"
-        ),
-    start_time: time = Form(
-        ...,
-       description="Start time (format: HH:MM:SS)" 
-        ),
+    start_date: date = Form(...),
+    start_time: time = Form(...),
 
-    end_date: date = Form(
-        ...,
-        description="End date (format: YYYY-MM-DD)"
-        ),
-    end_time: time = Form(
-        ...,
-        description="End time (format: HH:MM:SS)"
-        ),
+    end_date: date = Form(...),
+    end_time: time = Form(...),
 
     logo: UploadFile | None = File(None),
+
     db: Session = Depends(get_db),
-    payload: dict = Depends(require_roles("ADMIN", "CHAIR"))
+    payload: dict = Depends(require_roles("ADMIN", "CHAIR")),
 ):
     
     user_id = payload.get("user_id")
     if not user_id:
-        raise HTTPException(status_code=401, detail="Token missing user_id")
+        raise HTTPException(status_code=401, detail="Invalid token")
 
     start_dt = datetime.combine(start_date, start_time).replace(microsecond=0)
     end_dt = datetime.combine(end_date, end_time).replace(microsecond=0)
@@ -110,29 +135,18 @@ def create_conference(
     if start_dt >= end_dt:
         raise HTTPException(
             status_code=400,
-            detail="start datetime must be before end datetime"
+            detail="start datetime must be before end datetime",
         )
 
-    # ===== Handle logo upload =====
-    logo_path = None
+    logo_path = save_logo(logo) if logo else None
 
-    if logo:
-        filename = f"{name}_{logo.filename}"
-        file_path = os.path.join(UPLOAD_DIR, filename)
-
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(logo.file, buffer)
-
-        logo_path = file_path
-
-    # ===== Create conference =====
     new_conference = Conference(
         name=name,
         description=description,
         logo=logo_path,
-        start_date=start_dt,   # NV3
-        end_date=end_dt,       # NV3
-        created_by=user_id     
+        start_date=start_dt,
+        end_date=end_dt,
+        created_by=user_id,
     )
 
     db.add(new_conference)
@@ -148,8 +162,8 @@ def create_conference(
             "logo": new_conference.logo,
             "start_date": new_conference.start_date,
             "end_date": new_conference.end_date,
-            "created_by": new_conference.created_by
-        }
+            "created_by": new_conference.created_by,
+        },
     }
 
 # =========================
@@ -158,11 +172,13 @@ def create_conference(
 @router.get("/{conference_id}")
 def get_conference_by_id(
     conference_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    conference = db.query(Conference).filter(
-        Conference.id == conference_id
-    ).first()
+    conference = (
+        db.query(Conference)
+        .filter(Conference.id == conference_id)
+        .first()
+    )
 
     if not conference:
         raise HTTPException(status_code=404, detail="Conference not found")
@@ -181,140 +197,103 @@ def get_conference_by_id(
 # =========================
 # UPDATE CONFERENCE
 # =========================
-@router.put("/{conference_id}", status_code=200)
+@router.put("/{conference_id}")
 def update_conference(
     conference_id: int,
 
     name: str | None = Form(None),
     description: str | None = Form(None),
 
-    start_date: date | None = Form(
-        None,
-        description="Start date (YYYY-MM-DD)"
-        ),
-    start_time: time | None = Form(
-        None,
-        description="Start time (HH:MM:SS)"
-        ),
+    start_date: date | None = Form(None),
+    start_time: time | None = Form(None),
 
-    end_date: date | None = Form(
-        None,
-        description="End date (YYYY-MM-DD)"
-        ),
-    end_time: time | None = Form(
-        None,
-        description="End time (HH:MM:SS)"
-        ),
+    end_date: date | None = Form(None),
+    end_time: time | None = Form(None),
 
     logo: UploadFile | None = File(None),
+
     db: Session = Depends(get_db),
-    payload: dict = Depends(require_roles("ADMIN", "CHAIR"))
+    payload: dict = Depends(require_roles("ADMIN", "CHAIR")),
 ):
-    conference = db.query(Conference).filter(
-        Conference.id == conference_id
-    ).first()
+    conference = (
+        db.query(Conference)
+        .filter(Conference.id == conference_id)
+        .first()
+    )
 
     if not conference:
         raise HTTPException(status_code=404, detail="Conference not found")
 
-    # ===== BEFORE UPDATE =====
-    old_data = {
-        "id": conference.id,
-        "name": conference.name,
-        "description": conference.description,
-        "logo": conference.logo,
-        "start_date": conference.start_date,
-        "end_date": conference.end_date,
-    }
 
-    # ===== UPDATE BASIC FIELDS =====
     if name is not None:
         conference.name = name
 
     if description is not None:
         conference.description = description
 
-    # ===== UPDATE DATETIME (OPTIONAL) =====
-    # Nếu user nhập date/time thì mới update
-    if start_date or start_time:
-        new_start_date = start_date or conference.start_date.date()
-        new_start_time = start_time or conference.start_date.time()
 
-        conference.start_date = (
-            datetime.combine(new_start_date, new_start_time)
-            .replace(microsecond=0)
-        )
+    if start_date or start_time:
+        conference.start_date = datetime.combine(
+            start_date or conference.start_date.date(),
+            start_time or conference.start_date.time(),
+        ).replace(microsecond=0)
 
     if end_date or end_time:
-        new_end_date = end_date or conference.end_date.date()
-        new_end_time = end_time or conference.end_date.time()
+        conference.end_date = datetime.combine(
+            end_date or conference.end_date.date(),
+            end_time or conference.end_date.time(),
+        ).replace(microsecond=0)
 
-        conference.end_date = (
-            datetime.combine(new_end_date, new_end_time)
-            .replace(microsecond=0)
-        )
-
-    # ===== VALIDATE DATETIME =====
     if conference.start_date >= conference.end_date:
         raise HTTPException(
             status_code=400,
-            detail="start datetime must be before end datetime"
+            detail="start datetime must be before end datetime",
         )
 
-    # ===== UPDATE LOGO =====
+
     if logo:
-        filename = f"{conference.id}_{logo.filename}"
-        file_path = os.path.join(UPLOAD_DIR, filename)
-
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(logo.file, buffer)
-
-        conference.logo = file_path
+        conference.logo = save_logo(logo)
 
     db.commit()
     db.refresh(conference)
 
-    # ===== AFTER UPDATE =====
+
     return {
         "message": "Conference updated successfully",
-        "before_update": old_data,
-        "after_update": {
+        "conference": {
             "id": conference.id,
             "name": conference.name,
             "description": conference.description,
             "logo": conference.logo,
             "start_date": conference.start_date,
             "end_date": conference.end_date,
-        }
+        },
     }
 
 # =========================
 # DELETE CONFERENCE
 # =========================
-@router.delete("/{conference_id}", status_code=200)
+@router.delete("/{conference_id}")
 def delete_conference(
     conference_id: int,
     db: Session = Depends(get_db),
     payload: dict = Depends(require_roles("ADMIN", "CHAIR")),
 ):
-    conference = db.query(Conference).filter(
-        Conference.id == conference_id
-    ).first()
+    conference = (
+        db.query(Conference)
+        .filter(Conference.id == conference_id)
+        .first()
+    )
 
     if not conference:
         raise HTTPException(status_code=404, detail="Conference not found")
 
-    deleted_data = {
-        "id": conference.id,
-        "name": conference.name,
-        "description": conference.description,
-        "logo": conference.logo
-    }
+
 
     db.delete(conference)
     db.commit()
 
     return {
         "message": "Conference deleted successfully",
-        "deleted_conference": deleted_data
+        "id": conference_id,
     }

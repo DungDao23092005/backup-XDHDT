@@ -1,11 +1,10 @@
-// frontend/src/layouts/DashboardLayout.jsx
 import { Outlet, useLocation, Link } from "react-router-dom";
 import Header from "../components/layout/Header";
 import Sidebar from "../components/layout/Sidebar";
 // [MỚI] Import Hook xử lý FCM Notification
 import useFcm from "../hooks/useFcm";
 
-// --- COMPONENT BREADCRUMB (Điều hướng & Tiêu đề trang) ---
+// --- COMPONENT BREADCRUMB (Điều hướng) ---
 const BreadCrumb = () => {
   const { pathname } = useLocation();
 

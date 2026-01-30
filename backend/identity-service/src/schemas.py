@@ -1,6 +1,6 @@
 # src/schemas.py
 from typing import List, Optional
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 # --- Phần Token (Giữ nguyên) ---
 class TokenResponse(BaseModel):
@@ -63,7 +63,6 @@ class LogoutRequest(BaseModel):
     refresh_token: str
     all_devices: bool = False
 
-# ✅ Cập nhật UserUpdate để cho phép sửa đầy đủ thông tin hồ sơ
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
@@ -78,3 +77,6 @@ class VerifyOtpRequest(BaseModel):
 
 class FirebaseLoginRequest(BaseModel):
     token: str
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(..., min_length=6, description="Mật khẩu hiện tại để xác thực")
+    new_password: str = Field(..., min_length=6, description="Mật khẩu mới muốn đổi")

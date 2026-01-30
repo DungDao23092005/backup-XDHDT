@@ -1,6 +1,7 @@
 // src/pages/author/Notifications.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import notificationApi from "../../api/notificationApi";
+import reviewDiscussionApi from "../../api/reviewDiscussionApi";
 import { useNavigate } from "react-router-dom";
 
 
@@ -47,6 +48,19 @@ function categoryMetaFromSubject(subject) {
   return { label: "Hệ thống", rgb: "244 63 94" }; // rose
 }
 
+// Chỉ bật box trao đổi khi notification thuộc nhóm review/rebuttal
+function shouldShowDiscussion(subject) {
+  const s = String(subject || "").toLowerCase();
+  // Bạn có thể mở rộng keyword theo hệ thống của bạn:
+  return (
+    s.includes("phản biện") ||
+    s.includes("review") ||
+    s.includes("rebuttal") ||
+    s.includes("yêu cầu chỉnh sửa") ||
+    s.includes("revision")
+  );
+}
+
 export default function Notifications() {
   const navigate = useNavigate();
 
@@ -60,6 +74,15 @@ export default function Notifications() {
   // ✅ inbox responsive (mobile chỉ 1 view)
   const [isMobile, setIsMobile] = useState(false);
   const [mobileView, setMobileView] = useState("list"); // list | detail
+
+  // ===== Discussions state =====
+  const [discLoading, setDiscLoading] = useState(false);
+  const [discErr, setDiscErr] = useState("");
+  const [discItems, setDiscItems] = useState([]);
+  const [discInput, setDiscInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [replyTo, setReplyTo] = useState(null); // { id, preview }
+  const bottomRef = useRef(null);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
@@ -113,6 +136,12 @@ export default function Notifications() {
     [items, selectedId]
   );
 
+  const paperId = selected?.paper_id ?? null;
+  const showDiscussion = useMemo(
+    () => !!paperId && shouldShowDiscussion(selected?.subject),
+    [paperId, selected?.subject]
+  );
+
   const onSelect = async (n) => {
     setSelectedId(n.id);
     if (isMobile) setMobileView("detail");
@@ -144,8 +173,6 @@ export default function Notifications() {
     }
   };
 
-  const paperId = selected?.paper_id ?? null;
-
   const SoftIconCircle = ({ icon }) => (
     <div
       className="size-12 rounded-full flex items-center justify-center border"
@@ -159,19 +186,110 @@ export default function Notifications() {
     </div>
   );
 
+  // ====== Load discussions when selected/paper changes ======
+  const loadDiscussions = async (pid) => {
+    if (!pid) return;
+    try {
+      setDiscLoading(true);
+      setDiscErr("");
+      const res = await reviewDiscussionApi.listByPaperId(pid);
+      const data = res?.data ?? res;
+      const list = Array.isArray(data) ? data : [];
+      // sort theo sent_at tăng dần để giống chat
+      list.sort((a, b) => new Date(a?.sent_at || 0).getTime() - new Date(b?.sent_at || 0).getTime());
+      setDiscItems(list);
+      // reset reply state khi đổi paper
+      setReplyTo(null);
+    } catch (e) {
+      setDiscErr(e?.response?.data?.detail || "Không tải được trao đổi phản biện.");
+      setDiscItems([]);
+    } finally {
+      setDiscLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (showDiscussion) loadDiscussions(paperId);
+    else {
+      setDiscItems([]);
+      setDiscErr("");
+      setDiscInput("");
+      setReplyTo(null);
+    }
+    // eslint-disable-next-line
+  }, [paperId, showDiscussion]);
+
+  useEffect(() => {
+    // auto scroll xuống cuối khi có tin nhắn
+    if (!showDiscussion) return;
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [discItems, showDiscussion]);
+
+  const onSendDiscussion = async () => {
+    if (!paperId) return;
+    const content = String(discInput || "").trim();
+    if (!content) return;
+
+    try {
+      setSending(true);
+      setDiscErr("");
+
+      // Optimistic add
+      const optimistic = {
+        id: `tmp-${Date.now()}`,
+        paper_id: paperId,
+        sender_id: null,
+        content,
+        sent_at: new Date().toISOString(),
+        parent_id: replyTo?.id ?? null,
+        sender_role: "AUTHOR",
+        sender_name: "Tôi",
+        is_me: true,
+      };
+      setDiscItems((prev) => [...prev, optimistic]);
+      setDiscInput("");
+      setReplyTo(null);
+
+      const res = await reviewDiscussionApi.create(paperId, content, optimistic.parent_id);
+      const saved = res?.data ?? res;
+
+      // Replace optimistic
+      setDiscItems((prev) =>
+        prev.map((x) => (String(x.id) === String(optimistic.id) ? saved : x))
+      );
+    } catch (e) {
+      setDiscErr(e?.response?.data?.detail || "Gửi phản hồi thất bại.");
+      // rollback optimistic tmp
+      setDiscItems((prev) => prev.filter((x) => !String(x.id).startsWith("tmp-")));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const onReply = (msg) => {
+    setReplyTo({
+      id: msg?.id,
+      preview: (msg?.content || "").slice(0, 120),
+    });
+    // focus input
+    setTimeout(() => {
+      const el = document.getElementById("discussion-input");
+      el?.focus?.();
+    }, 0);
+  };
+
   // ========= UI blocks =========
   const LeftList = (
-    <div className="w-full md:w-[420px] border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+    <div
+      className="w-full md:w-[420px] border-r flex flex-col"
+      style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+    >
       <div className="p-4 border-b space-y-4" style={{ borderColor: "var(--border)" }}>
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-black" style={{ color: "var(--text)" }}>
             Danh sách
           </h2>
-          <button
-            onClick={markAllRead}
-            className="text-xs font-black hover:underline"
-            style={{ color: "var(--primary)" }}
-          >
+          <button onClick={markAllRead} className="text-xs font-black hover:underline" style={{ color: "var(--primary)" }}>
             Đánh dấu đã đọc tất cả
           </button>
         </div>
@@ -271,10 +389,7 @@ export default function Notifications() {
                 )}
 
                 <div className="flex justify-between items-start mb-1">
-                  <span
-                    className="text-xs font-black uppercase"
-                    style={{ color: `rgb(${meta.rgb} / 0.95)` }}
-                  >
+                  <span className="text-xs font-black uppercase" style={{ color: `rgb(${meta.rgb} / 0.95)` }}>
                     {meta.label}
                   </span>
                   <span className="text-[10px]" style={{ color: "var(--muted)" }}>
@@ -385,6 +500,23 @@ export default function Notifications() {
                   </span>
                 </span>
               </div>
+
+              {showDiscussion && (
+                <div
+                  className="px-3 py-1 rounded-lg border flex items-center gap-2"
+                  style={{
+                    background: "rgb(var(--primary-rgb) / 0.08)",
+                    borderColor: "rgb(var(--primary-rgb) / 0.22)",
+                  }}
+                >
+                  <span className="material-symbols-outlined text-sm" style={{ color: "var(--primary)" }}>
+                    forum
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: "var(--primary)" }}>
+                    Có thể phản hồi phản biện
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -419,14 +551,242 @@ export default function Notifications() {
                   <span className="material-symbols-outlined text-xl">visibility</span>
                   Xem chi tiết bài báo
                 </button>
+
+                {showDiscussion && (
+                  <button
+                    onClick={() => loadDiscussions(paperId)}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 font-black rounded-xl transition active:scale-[0.98]"
+                    style={{
+                      background: "rgb(var(--primary-rgb) / 0.10)",
+                      border: "1px solid rgb(var(--primary-rgb) / 0.22)",
+                      color: "var(--primary)",
+                    }}
+                    title="Tải lại trao đổi"
+                  >
+                    <span className="material-symbols-outlined text-xl">chat</span>
+                    Xem trao đổi
+                  </button>
+                )}
               </div>
             </div>
 
-            <div className="max-w-3xl mx-auto mt-4 text-center">
-              <p className="text-xs" style={{ color: "var(--muted)" }}>
-                Đây là thông báo hệ thống. Vui lòng không trả lời trực tiếp.
-              </p>
-            </div>
+            {/* ====== DISCUSSION THREAD (NEW) ====== */}
+            {showDiscussion && (
+              <div className="max-w-3xl mx-auto mt-6">
+                <div
+                  className="rounded-2xl border shadow-sm overflow-hidden"
+                  style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+                >
+                  <div className="p-5 border-b flex items-center justify-between" style={{ borderColor: "var(--border)" }}>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="size-10 rounded-xl flex items-center justify-center border"
+                        style={{
+                          background: "rgb(var(--primary-rgb) / 0.10)",
+                          borderColor: "rgb(var(--primary-rgb) / 0.22)",
+                          color: "var(--primary)",
+                        }}
+                      >
+                        <span className="material-symbols-outlined">forum</span>
+                      </div>
+                      <div>
+                        <div className="font-black" style={{ color: "var(--text)" }}>
+                          Trao đổi phản biện (ẩn danh)
+                        </div>
+                        <div className="text-xs" style={{ color: "var(--muted)" }}>
+                          Dựa theo Paper ID để tránh xung đột lợi ích.
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => loadDiscussions(paperId)}
+                      className="px-3 py-2 text-xs font-black rounded-lg transition"
+                      style={{ color: "var(--text)", border: "1px solid var(--border)", background: "transparent" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.06)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                      title="Tải lại"
+                    >
+                      <span className="material-symbols-outlined text-base align-middle">refresh</span>
+                    </button>
+                  </div>
+
+                  <div className="p-5 md:p-6">
+                    {discErr && (
+                      <div
+                        className="mb-4 p-4 rounded-2xl font-semibold border"
+                        style={{
+                          background: "rgb(244 63 94 / 0.12)",
+                          borderColor: "rgb(244 63 94 / 0.25)",
+                          color: "rgb(244 63 94 / 0.95)",
+                        }}
+                      >
+                        {discErr}
+                      </div>
+                    )}
+
+                    <div className="max-h-[420px] overflow-y-auto pr-1">
+                      {discLoading ? (
+                        <div className="py-10 text-center" style={{ color: "var(--muted)" }}>
+                          Đang tải trao đổi...
+                        </div>
+                      ) : discItems.length === 0 ? (
+                        <div className="py-10 text-center" style={{ color: "var(--muted)" }}>
+                          Chưa có trao đổi nào cho bài báo này.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {discItems.map((m) => {
+                            const mine = !!m?.is_me;
+                            const senderName = m?.sender_name || (mine ? "Tôi" : "Ẩn danh");
+                            const time = formatTime(m?.sent_at);
+
+                            return (
+                              <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                                <div
+                                  className="max-w-[85%] p-4 rounded-2xl border"
+                                  style={{
+                                    background: mine ? "rgb(var(--primary-rgb) / 0.10)" : "var(--surface-2)",
+                                    borderColor: mine ? "rgb(var(--primary-rgb) / 0.25)" : "var(--border)",
+                                  }}
+                                >
+                                  <div className="flex items-center justify-between gap-3 mb-2">
+                                    <span className="text-xs font-black uppercase" style={{ color: "var(--muted)" }}>
+                                      {senderName}
+                                    </span>
+                                    <span className="text-[10px]" style={{ color: "var(--muted)" }}>
+                                      {time}
+                                    </span>
+                                  </div>
+
+                                  <div className="text-sm whitespace-pre-line" style={{ color: "var(--text)" }}>
+                                    {m?.content || ""}
+                                  </div>
+
+                                  {/* Reply action (optional) */}
+                                  <div className="mt-3 flex justify-end">
+                                    <button
+                                      onClick={() => onReply(m)}
+                                      className="text-xs font-black hover:underline"
+                                      style={{ color: "var(--primary)" }}
+                                      title="Trả lời tin nhắn này"
+                                    >
+                                      Trả lời
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div ref={bottomRef} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Reply preview */}
+                    {replyTo && (
+                      <div
+                        className="mt-5 p-4 rounded-2xl border"
+                        style={{
+                          background: "rgb(var(--primary-rgb) / 0.08)",
+                          borderColor: "rgb(var(--primary-rgb) / 0.22)",
+                        }}
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <div className="text-xs font-black" style={{ color: "var(--primary)" }}>
+                              Đang trả lời một tin nhắn
+                            </div>
+                            <div className="text-xs mt-1 whitespace-pre-line" style={{ color: "var(--muted)" }}>
+                              {replyTo.preview}
+                              {replyTo.preview?.length >= 120 ? "..." : ""}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setReplyTo(null)}
+                            className="p-2 rounded-lg transition"
+                            style={{ color: "var(--muted)" }}
+                            title="Huỷ trả lời"
+                            onMouseEnter={(e) => (e.currentTarget.style.background = "rgb(var(--primary-rgb) / 0.06)")}
+                            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                          >
+                            <span className="material-symbols-outlined">close</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Composer */}
+                    <div className="mt-5">
+                      <div className="flex gap-3 items-end">
+                        <div className="flex-1">
+                          <label className="text-xs font-black" style={{ color: "var(--muted)" }}>
+                            Gửi phản hồi / giải thích cho phản biện
+                          </label>
+                          <textarea
+                            id="discussion-input"
+                            value={discInput}
+                            onChange={(e) => setDiscInput(e.target.value)}
+                            rows={3}
+                            placeholder="Nhập nội dung phản hồi..."
+                            className="w-full mt-2 px-4 py-3 rounded-2xl border outline-none resize-none"
+                            style={{
+                              background: "var(--surface)",
+                              borderColor: "var(--border)",
+                              color: "var(--text)",
+                            }}
+                            onFocus={(e) => (e.currentTarget.style.borderColor = "rgb(var(--primary-rgb) / 0.40)")}
+                            onBlur={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
+                          />
+                          <div className="mt-2 text-[11px]" style={{ color: "var(--muted)" }}>
+                            Lưu ý: Trao đổi này được ẩn danh và gắn theo Paper ID.
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={onSendDiscussion}
+                          disabled={sending || !discInput.trim() || !paperId}
+                          className="px-6 py-3 font-black rounded-2xl transition active:scale-[0.98] disabled:opacity-50"
+                          style={{
+                            background: "var(--primary)",
+                            color: "#fff",
+                            boxShadow: "0 10px 25px rgb(var(--primary-rgb) / 0.20)",
+                          }}
+                          title="Gửi phản hồi"
+                        >
+                          {sending ? (
+                            <span className="inline-flex items-center gap-2">
+                              <span className="material-symbols-outlined animate-spin">progress_activity</span>
+                              Đang gửi
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-2">
+                              <span className="material-symbols-outlined">send</span>
+                              Gửi
+                            </span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 text-center">
+                  <p className="text-xs" style={{ color: "var(--muted)" }}>
+                    Trao đổi này thay thế cho “không trả lời trực tiếp thông báo hệ thống”.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* footer note cũ */}
+            {!showDiscussion && (
+              <div className="max-w-3xl mx-auto mt-4 text-center">
+                <p className="text-xs" style={{ color: "var(--muted)" }}>
+                  Đây là thông báo hệ thống. Vui lòng không trả lời trực tiếp.
+                </p>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -497,7 +857,6 @@ export default function Notifications() {
               {RightDetail}
             </div>
 
-            {/* Mobile: chỉ 1 view */}
             <div className="flex md:hidden w-full">{mobileView === "list" ? LeftList : RightDetail}</div>
           </div>
         </div>

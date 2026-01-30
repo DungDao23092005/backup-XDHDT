@@ -216,3 +216,14 @@ def create_email_log_entry(db: Session, recipient: str, subject: str):
 
 def update_email_log_status(db: Session, log_id: int, status: str, error: str = None):
     pass
+
+def get_user_by_id(db: Session, user_id: int):
+    return db.query(models.User).filter(models.User.id == user_id).first()
+
+def update_password(db: Session, user_id: int, new_password: str):
+    user = get_user_by_id(db, user_id)
+    if user:
+        user.password_hash = get_password_hash(new_password)
+        db.commit()
+        db.refresh(user)
+    return user
