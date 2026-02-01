@@ -1,6 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks, Header
 from sqlalchemy.orm import Session, selectinload
-from typing import List
+from typing import List, Optional
 import json
 import httpx
 import os
@@ -27,11 +27,6 @@ def _normalize_base_url(url: str) -> str:
     return url.rstrip("/")
 
 def _notification_endpoint() -> str:
-    """
-    settings.NOTIFICATION_SERVICE_URL trong project đang default là base URL (vd: http://localhost:8001).
-    Nhưng notification-service thực tế nhận POST tại /api/notifications.
-    Hàm này đảm bảo URL cuối cùng luôn trỏ đúng endpoint.
-    """
     base = _normalize_base_url(settings.NOTIFICATION_SERVICE_URL)
     if not base:
         return "/api/notifications"
@@ -55,7 +50,6 @@ def call_notification_service_task(payload: dict):
         print(f"[Submission Service] Connection Error: {str(e)}")
 
 
-
 # -----------------------------
 # Reviewer/Chair/Admin: Open papers for bidding
 # -----------------------------
@@ -68,9 +62,6 @@ def get_open_papers_for_bidding(
     db: Session = Depends(database.get_db),
     payload=Depends(get_current_payload),
 ):
-    """
-    Danh sách bài mở cho bidding (mặc định: status = SUBMITTED).
-    """
     user_id = payload.get("user_id")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token missing user_id")
@@ -156,7 +147,6 @@ def submit_paper(
         }
         background_tasks.add_task(call_notification_service_task, notification_payload)
 
-
         return paper
 
     except Exception as e:
@@ -192,29 +182,53 @@ def get_my_submissions(
     return crud.get_papers_by_author(db, submitter_id)
 
 
-# Xem chi tiết bài báo: AUTHOR/ADMIN (chỉ của chính mình)
+# =========================================================
+# 👇 ĐÃ SỬA: Xem chi tiết bài báo (Hỗ trợ Internal Key)
+# =========================================================
 @router.get(
     "/{paper_id}",
     response_model=schemas.PaperResponse,
-    dependencies=[Depends(require_roles(["AUTHOR", "ADMIN"]))],
 )
 def get_submission_detail(
     paper_id: int,
     db: Session = Depends(database.get_db),
-    payload=Depends(get_current_payload),
+    payload: dict = Depends(get_current_payload),  # Vẫn validate token user (nếu có)
+    x_internal_key: Optional[str] = Header(default=None) # Hứng Internal Key
 ):
+    # 1. ƯU TIÊN: Kiểm tra Internal Key (Service-to-Service)
+    # Nếu Key đúng -> Cho phép lấy bài báo bất kỳ (dùng cho AI Service, Review Service...)
+    if x_internal_key and x_internal_key == settings.INTERNAL_KEY:
+        # Lấy bài báo trực tiếp từ DB (bỏ qua check owner)
+        paper = db.query(models.Paper).filter(models.Paper.id == paper_id).first()
+        if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
+        return paper
+
+    # 2. NẾU KHÔNG CÓ KEY -> Kiểm tra quyền User như bình thường
     submitter_id = payload.get("user_id")
+    roles = payload.get("roles", [])
+
     if not submitter_id:
         raise HTTPException(status_code=401, detail="Token missing user_id")
 
-    try:
-        return crud.get_author_paper_detail(db=db, paper_id=paper_id, submitter_id=submitter_id)
+    # Admin hoặc Chair được xem mọi bài
+    if "ADMIN" in roles or "CHAIR" in roles:
+         paper = db.query(models.Paper).filter(models.Paper.id == paper_id).first()
+         if not paper:
+            raise HTTPException(status_code=404, detail="Paper not found")
+         return paper
 
-    except exceptions.PaperNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    # Author chỉ được xem bài của mình
+    if "AUTHOR" in roles:
+        try:
+            return crud.get_author_paper_detail(db=db, paper_id=paper_id, submitter_id=submitter_id)
+        except exceptions.PaperNotFoundError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except exceptions.NotAuthorizedError as e:
+             raise HTTPException(status_code=403, detail="Bạn không có quyền xem bài này.")
 
-    except exceptions.NotAuthorizedError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+    # Các role khác (Reviewer) nếu không đi qua Internal Key thì không cho xem ở API này
+    raise HTTPException(status_code=403, detail="Access denied")
 
 
 # Thêm tác giả: AUTHOR/ADMIN
@@ -456,28 +470,18 @@ def update_author(
     except exceptions.BusinessRuleError as e:
         raise HTTPException(status_code=400, detail=e.message)
 
-
-
 # ============================================================
 # HÀM KIỂM TRA THỜI HẠN HỘI NGHỊ (INTERNAL CALL)
 # ============================================================
 def validate_conference_timeline(conference_id: int):
-    """
-    Gọi sang Conference Service để lấy start_date, end_date
-    và so sánh với thời gian hiện tại.
-    """
     conf_service_url = getattr(settings, "CONFERENCE_SERVICE_URL", "http://conference-service:8000")
-    
     try:
-    
         response = httpx.get(f"{conf_service_url}/conferences/{conference_id}", timeout=5.0)
         
-        # 1. Kiểm tra kết nối
         if response.status_code == 404:
             raise HTTPException(status_code=404, detail="Hội nghị không tồn tại hoặc đã bị xóa.")
         
         if response.status_code != 200:
-            # Log warning nếu cần
             print(f"[Warning] Không thể check timeline. Status: {response.status_code}")
             return True             
         conf_data = response.json()
