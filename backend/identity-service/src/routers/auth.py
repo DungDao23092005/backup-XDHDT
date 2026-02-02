@@ -14,7 +14,7 @@ from src.auth import (
     verify_password,
     create_access_token,
     create_refresh_token,
-    hash_token,
+    hash_token, 
     get_password_hash,
     SECRET_KEY,
     ALGORITHM,
@@ -67,6 +67,7 @@ def login(data: schemas.LoginRequest, db: Session = Depends(get_db)):
     refresh_hash = hash_token(refresh_token)
     expires_at = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     crud.save_refresh_token(db, user_id=user.id, token_hash=refresh_hash, expires_at=expires_at)
+    crud.log_activity(db, user_id=user.id, action="Đăng nhập hệ thống", target="Portal")
 
     return {
         "access_token": access_token,

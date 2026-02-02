@@ -197,7 +197,9 @@ export default function Sidebar() {
       { to: "/chair/conferences", label: "Danh sách hội nghị", icon: "event" , end: true},
       { to: "/chair/conferences/create", label: "Tạo hội nghị", icon: "add_circle" , end: true},
       { to: "/chair/tracks/create", label: "Tạo Track", icon: "add_circle" , end: true},
+      { to: "/chair/topics/create", label: "Tạo Topic", icon: "add_circle" , end: true},
       { to: "/chair/reviewers", label: "Quản lý Reviewer", icon: "group" , end: true},
+      { to: "/chair/reviewers/assign", label: "Phân công Reviewer", icon: "assignment_ind", end: true },
       { to: "/chair/profile", label: "Hồ sơ cá nhân", icon: "person", end: true },
       { to: "/chair/settings", label: "Cài đặt tài khoản", icon: "manage_accounts", end: true },
     ];

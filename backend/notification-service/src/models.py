@@ -54,13 +54,13 @@ class ReviewerInvitation(Base):
     __tablename__ = "reviewer_invitations"
 
     id = Column(Integer, primary_key=True, index=True)
-    conference_id = Column(Integer)
-    conference_name = Column(String(255))
+    conference_id = Column(Integer, nullable=True)
+    conference_name = Column(String(255), nullable=True)
     reviewer_name = Column(String(255))
     reviewer_email = Column(String(255))
-    description = Column(Text)
+    description = Column(Text, nullable=True)
     status = Column(Enum(InvitationStatus), default=InvitationStatus.PENDING)
-    token = Column(String(255))
+    token = Column(String(255), nullable=False)
 
 class NotificationPrefs(Base):
     __tablename__ = "notification_prefs"

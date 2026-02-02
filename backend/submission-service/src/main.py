@@ -4,9 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator 
 
-# Import 2 client để bắn tin nhắn
+# Chỉ giữ lại Client của RabbitMQ (Đã bỏ Kafka)
 from src.rabbitmq_client import publish_message as send_email_task
-from src.kafka_client import log_activity
 
 from .database import engine, Base
 from .routers import submissions
@@ -48,7 +47,7 @@ app.include_router(submissions.router)
 
 @app.get("/")
 def root():
-    return {"message": "Submission Service is running!"}
+    return {"message": "Submission Service is running (RabbitMQ Only)!"}
 
 @app.get("/health")
 def health_check():
@@ -57,22 +56,21 @@ def health_check():
 @app.post("/test-trigger")
 def test_integration():
     """
-    API này dùng để TEST: Bắn tin nhắn vào cả RabbitMQ và Kafka cùng lúc.
-    Giúp kiểm tra xem 2 Worker có hoạt động song song không.
+    API này dùng để TEST: Bắn tin nhắn vào RabbitMQ.
+    (Đã gỡ bỏ Kafka để tối ưu RAM cho máy 8GB)
     """
     # 1. Gửi việc cho RabbitMQ (Gửi Email)
     email_payload = {
         "receiver_email": "qwer2309200c@gmail.com", # Email của bạn
-        "subject": "TEST TOAN HE THONG",
-        "body": "Chuc mung! RabbitMQ da gui mail thanh cong."
+        "subject": "TEST RABBITMQ ONLY",
+        "body": "Chuc mung! RabbitMQ da gui mail thanh cong (He thong da tat Kafka)."
     }
+    
+    # Gọi hàm bắn tin nhắn
     send_email_task(email_payload)
 
-    # 2. Gửi việc cho Kafka (Ghi Log)
-    log_activity("TEST_API", "User vua goi API /test-trigger de kiem tra he thong")
-
     return {
-        "message": "Đã gửi tín hiệu đi thành công!",
+        "message": "Đã gửi tín hiệu RabbitMQ đi thành công!",
         "rabbitmq": "Sent email task",
-        "kafka": "Sent log event"
+        "mode": "Lightweight (No Kafka)"
     }

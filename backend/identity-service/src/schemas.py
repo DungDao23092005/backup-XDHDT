@@ -1,6 +1,7 @@
 # src/schemas.py
 from typing import List, Optional
 from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
 
 # --- Phần Token (Giữ nguyên) ---
 class TokenResponse(BaseModel):
@@ -80,3 +81,15 @@ class FirebaseLoginRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str = Field(..., min_length=6, description="Mật khẩu hiện tại để xác thực")
     new_password: str = Field(..., min_length=6, description="Mật khẩu mới muốn đổi")
+
+
+class AuditLogResponse(BaseModel):
+    id: int
+    action: str
+    target: Optional[str] = None
+    timestamp: datetime
+    user_name: Optional[str] = "Hệ thống" 
+    status: str
+
+    class Config:
+        from_attributes = True

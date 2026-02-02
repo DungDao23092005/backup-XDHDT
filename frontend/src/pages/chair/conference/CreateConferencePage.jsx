@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import conferenceApi from "../../../api/conferenceApi";
+
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
 
 const CreateConferencePage = () => {
   const navigate = useNavigate();
@@ -23,14 +26,22 @@ const CreateConferencePage = () => {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // ✅ FIX: dùng setLogo thay vì setLogoFile
-  const handleLogoChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+ const handleLogoChange = (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-    setLogo(file);
-    setLogoPreview(URL.createObjectURL(file));
+  setLogo(file);
+  setLogoPreview(URL.createObjectURL(file));
+
+  e.target.value = ""; // ✅ cho phép chọn lại cùng file vẫn trigger
+};
+
+useEffect(() => {
+  return () => {
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
   };
+}, [logoPreview]);
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -109,20 +120,26 @@ const CreateConferencePage = () => {
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="text-sm font-semibold text-slate-900">Mô tả chi tiết</label>
-              <textarea
-                name="description"
-                value={form.description}
-                onChange={handleChange}
-                rows={4}
-                className="px-4 py-2.5 rounded-lg border 
-                          text-black bg-white 
-                          placeholder-slate-400
-                          focus:ring-2 focus:ring-primary 
-                          focus:outline-none resize-none"
-                placeholder="Giới thiệu về hội nghị..."
-              />
+              <label className="text-sm font-semibold text-slate-900">
+                Mô tả chi tiết
+              </label>
+
+              <div className="bg-white text-black rounded-lg border border-slate-200 overflow-hidden">
+                <ReactQuill
+                  theme="snow"
+                  value={form.description}
+                  onChange={(html) =>
+                    setForm((prev) => ({ ...prev, description: html }))
+                  }
+                  placeholder="Giới thiệu về hội nghị..."
+                />
+              </div>
+
+              <p className="text-xs text-slate-500">
+                Bạn có thể paste từ Word/Notion/web, hệ thống sẽ giữ định dạng cơ bản (bold, list, link, emoji).
+              </p>
             </div>
+
 
             {/* Logo */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -1,7 +1,8 @@
 from sqlalchemy.orm import Session
 from src import models, schemas
 from src.models import ReviewerInvitation
-
+from sqlalchemy import or_
+from typing import Optional
 def create_notification_log(db: Session, msg_data: schemas.NotificationRequest, sender_id: int = 0):
     new_msg = models.Message(
         sender_id=sender_id,
@@ -46,22 +47,30 @@ def update_email_log_status(db: Session, log_id: int, status: models.EmailStatus
     
     return log_entry
 
-def get_user_messages(db: Session, user_id: int, limit: int = 50):
-    return (
-        db.query(models.Message)
-        .filter(models.Message.receiver_id == user_id)
-        .order_by(models.Message.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+def get_user_messages(db: Session, user_id: int, email: str | None = None, limit: int = 50):
+    q = db.query(models.Message)
 
-def mark_message_read(db: Session, message_id: int, receiver_id: int):
-    msg = (
-        db.query(models.Message)
-        .filter(models.Message.id == message_id)
-        .filter(models.Message.receiver_id == receiver_id)
-        .first()
+    if email:
+        q = q.filter(or_(models.Message.receiver_id == user_id,
+                         models.Message.receiver_email == email))
+    else:
+        q = q.filter(models.Message.receiver_id == user_id)
+
+    return (
+        q.order_by(models.Message.created_at.desc())
+         .limit(limit)
+         .all()
     )
+def mark_message_read(db: Session, message_id: int, receiver_id: int, email: str | None = None):
+    q = db.query(models.Message).filter(models.Message.id == message_id)
+
+    if email:
+        q = q.filter(or_(models.Message.receiver_id == receiver_id,
+                         models.Message.receiver_email == email))
+    else:
+        q = q.filter(models.Message.receiver_id == receiver_id)
+
+    msg = q.first()
     if msg:
         msg.is_read = True
         db.commit()
@@ -71,12 +80,12 @@ def mark_message_read(db: Session, message_id: int, receiver_id: int):
 
 def create_reviewer_invitation(
     db: Session,
-    conference_id: int,
-    conference_name: str,
+    conference_id: int | None,
+    conference_name: str | None,
     reviewer_name: str,
     description: str,
     reviewer_email: str,
-    token: str
+    token: str,
 ):
     invitation = ReviewerInvitation(
         conference_id=conference_id,

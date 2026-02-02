@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import conferenceApi from "../../api/conferenceApi";
-
+import reviewerApi from "../../api/reviewerApi";
+import trackApi from "../../api/trackApi";
+import topicApi from "../../api/topicApi";
 /* ---------------- helpers ---------------- */
 
 function getStatus(conf) {
@@ -15,11 +17,58 @@ function getStatus(conf) {
 
 /* ---------------- page ---------------- */
 
+const LS_CONF_IDS = "chairdash_conf_ids";
+const LS_INV_STATUS = "chairdash_inv_status";
+
+function makeAlerts(confs, invitations) {
+  const out = [];
+
+  // 1) Conference mới
+  const prevConfIds = JSON.parse(localStorage.getItem(LS_CONF_IDS) || "[]");
+  const nowConfIds = (confs || []).map((c) => c.id);
+
+  (confs || [])
+    .filter((c) => !prevConfIds.includes(c.id))
+    .forEach((c) => {
+      out.push({
+        id: `conf-${c.id}`,
+        ts: Date.now(),
+        title: "Hội nghị mới được tạo",
+        desc: `“${c.name}” (ID: ${c.id})`,
+      });
+    });
+
+  localStorage.setItem(LS_CONF_IDS, JSON.stringify(nowConfIds));
+
+  // 2) Reviewer vừa ACCEPT
+  const prevMap = JSON.parse(localStorage.getItem(LS_INV_STATUS) || "{}");
+  const nextMap = {};
+
+  (invitations || []).forEach((inv) => {
+    nextMap[inv.id] = inv.status;
+    if (prevMap[inv.id] !== "ACCEPTED" && inv.status === "ACCEPTED") {
+      out.push({
+        id: `acc-${inv.id}`,
+        ts: Date.now(),
+        title: "Reviewer đã chấp nhận lời mời",
+        desc: `${inv.reviewer_email} • ${inv.conference_name}`,
+      });
+    }
+  });
+
+  localStorage.setItem(LS_INV_STATUS, JSON.stringify(nextMap));
+
+  out.sort((a, b) => b.ts - a.ts);
+  return out;
+}
+
+
 export default function ChairDashboard() {
   const navigate = useNavigate();
 
   const [conferences, setConferences] = useState([]);
   const [loadingConf, setLoadingConf] = useState(true);
+  const [alerts, setAlerts] = useState([]);
 
   /* ----- load conferences ----- */
   const loadConferences = useCallback(async () => {
@@ -52,6 +101,25 @@ export default function ChairDashboard() {
     () => conferences.slice(0, 5),
     [conferences]
   );
+
+
+useEffect(() => {
+  const run = async () => {
+    try {
+      // conferences đã có sẵn loadConferences rồi
+      const inv = await reviewerApi.getInvitations();
+      const confs = Array.isArray(conferences) ? conferences : [];
+      const alerts = makeAlerts(confs, Array.isArray(inv) ? inv : []);
+      setAlerts(alerts);
+    } catch {
+      setAlerts([]);
+    }
+  };
+
+  // chạy khi conferences đã load xong
+  if (!loadingConf) run();
+}, [loadingConf, conferences]);
+
 
   /* ---------------- render ---------------- */
 
@@ -161,38 +229,63 @@ export default function ChairDashboard() {
               </div>
             </div>
 
-            {/* Notifications – UI only */}
-            <div className="bg-white rounded-2xl border p-6">
+            {/* Notifications */}
+          <div className="bg-white rounded-2xl border p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="font-bold text-lg text-slate-900">
+                📣 Thông báo
+              </h3>
+              <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                {alerts.length} mới
+              </span>
               <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold text-lg text-slate-900">
-                  📣 Thông báo
-                </h3>
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
-                  Đang phát triển
-                </span>
-              </div>
+                <h3 className="font-bold text-lg text-slate-900">📣 Thông báo</h3>
 
-              <div className="space-y-3">
-                <div className="p-4 rounded-xl border bg-slate-50 border-slate-200">
-                  <div className="font-bold text-lg text-slate-900">
-                    Hệ thống đang hoàn thiện
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Chức năng thông báo sẽ sớm được cập nhật
-                  </div>
-                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                    {alerts.length} mới
+                  </span>
 
-                <div className="p-4 rounded-xl border bg-slate-50 border-slate-200">
-                  <div className="font-bold text-lg text-slate-900">
-                    Quản lý hội nghị dễ dàng
-                  </div>
-                  <div className="text-xs text-slate-500 mt-1">
-                    Truy cập danh sách hội nghị để theo dõi
-                  </div>
+                  <button
+                    onClick={() => {
+                      localStorage.removeItem(LS_CONF_IDS);
+                      localStorage.removeItem(LS_INV_STATUS);
+                      // reload lại alerts ngay
+                      setAlerts(makeAlerts(conferences, []));
+                    }}
+                    className="text-xs font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    type="button"
+                    title="Reset để test thông báo"
+                  >
+                    Reset
+                  </button>
                 </div>
               </div>
             </div>
+
+            {alerts.length === 0 ? (
+              <div className="p-4 rounded-xl border bg-slate-50 border-slate-200 text-slate-500">
+                Chưa có thông báo mới.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {alerts.slice(0, 5).map((a) => (
+                  <div
+                    key={a.id}
+                    className="p-4 rounded-xl border bg-slate-50 border-slate-200"
+                  >
+                    <div className="font-bold text-slate-900">
+                      {a.title}
+                    </div>
+                    <div className="text-xs text-slate-600 mt-1">
+                      {a.desc}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
+        </div>
 
           {/* Right */}
           <div className="space-y-8">

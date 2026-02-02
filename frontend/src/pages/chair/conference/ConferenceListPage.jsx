@@ -53,25 +53,25 @@ const formatDateTime = (value) => {
         conf.id.toString().includes(keyword)
     );
 
-  const buildLogoUrl = (logo) => {
-    if (!logo) return null;
+const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8080";
 
-    if (logo.startsWith("http")) return logo;
+const buildLogoUrl = (logo) => {
+  if (!logo) return null;
+  if (logo.startsWith("http")) return logo;
 
-    if (logo.startsWith("/static")) {
-      return `http://localhost:8080${logo}`;
-    }
+  // backend trả "/static/..."
+  if (logo.startsWith("/static/")) {
+    return `${API_BASE}/conference${logo}`; // ✅ thêm /conference
+  }
 
-    if (logo.startsWith("static/")) {
-      return `http://localhost:8080/${logo}`;
-    }
+  // nếu lỡ backend trả "static/..."
+  if (logo.startsWith("static/")) {
+    return `${API_BASE}/conference/${logo}`;
+  }
 
-    if (logo.startsWith("conference_logos/")) {
-      return `http://localhost:8080/static/${logo}`;
-    }
+  return null;
+};
 
-    return null;
-  };
   
 
 

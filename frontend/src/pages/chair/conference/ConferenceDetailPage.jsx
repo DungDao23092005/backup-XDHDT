@@ -2,7 +2,19 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import conferenceApi from "../../../api/conferenceApi";
 import trackApi from "../../../api/trackApi";
-const API_URL = process.env.REACT_APP_API_URL;
+import topicApi from "../../../api/topicApi";
+
+import DOMPurify from "dompurify";
+
+const API_BASE = process.env.REACT_APP_API_URL || "http://127.0.0.1:8080";
+
+const buildLogoUrl = (logo) => {
+  if (!logo) return null;
+  if (logo.startsWith("http")) return logo;              // nếu backend trả full url
+  if (logo.startsWith("/static/")) return `${API_BASE}/conference${logo}`; 
+  return `${API_BASE}/conference/${logo}`;               // fallback
+};
+
 
 
 const ConferenceDetailPage = () => {
@@ -11,7 +23,8 @@ const ConferenceDetailPage = () => {
 
   const [conference, setConference] = useState(null);
   const [tracks, setTracks] = useState([]);
-  
+  const [topicsByTrack, setTopicsByTrack] = useState({});
+
   const [form, setForm] = useState({
   name: "",
   description: "",
@@ -51,7 +64,29 @@ useEffect(() => {
   conferenceApi.getTracksByConference(id).then(setTracks);
 }, [id]);
 
+useEffect(() => {
+  if (!tracks || tracks.length === 0) return;
 
+  const fetchTopics = async () => {
+    const map = {};
+
+    await Promise.all(
+      tracks.map(async (track) => {
+        try {
+          const topics = await topicApi.getTopicsByTrack(track.id);
+          map[track.id] = topics;
+        } catch (err) {
+          console.error("Load topics failed for track", track.id, err);
+          map[track.id] = [];
+        }
+      })
+    );
+
+    setTopicsByTrack(map);
+  };
+
+  fetchTopics();
+}, [tracks]);
 
   if (!conference) return <p className="p-8">Đang tải...</p>;
 
@@ -82,15 +117,26 @@ useEffect(() => {
         </div>
       </div>
 
-      {/* Logo */}
+
       {conference.logo && (
         <img
-          src={`${API_URL}/static/${conference.logo}`}
+          src={buildLogoUrl(conference.logo)}
+          alt="Conference logo"
           className="h-56 rounded-xl mb-6 object-cover"
+          onError={(e) => {
+            e.currentTarget.style.display = "none";
+          }}
         />
       )}
 
-      <p className="text-white mb-8">{conference.description}</p>
+
+      <div
+        className="prose max-w-none text-slate-700 mb-8"
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(conference.description || ""),
+        }}
+      />
+
         {/* Thời gian hội nghị */}
         <div className="mb-10 p-5 border rounded-xl bg-slate-50">
           <h3 className="font-bold mb-4 text-black">Thời gian hội nghị</h3>
@@ -190,6 +236,24 @@ useEffect(() => {
               <div>
                 <p className="font-semibold">{t.name}</p>
                 <p className="text-sm text-slate-500">{t.description}</p>
+
+                {/* Topics */}
+                  {topicsByTrack[t.id]?.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {topicsByTrack[t.id].map((topic) => (
+                        <span
+                          key={topic.id}
+                          className="
+                            px-2 py-1 text-xs
+                            bg-slate-100 text-slate-700
+                            border rounded-full
+                          "
+                        >
+                          {topic.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
               </div>
 
               <div className="flex items-center gap-3">

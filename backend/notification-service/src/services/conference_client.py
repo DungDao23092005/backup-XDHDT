@@ -8,7 +8,7 @@ CONFERENCE_SERVICE_URL = os.getenv(
 )
 
 def get_conference(conference_id: int):
-    url = f"{CONFERENCE_SERVICE_URL}/conferences/{conference_id}"
+    url = f"{CONFERENCE_SERVICE_URL}/api/conferences/{conference_id}"
 
     try:
         response = httpx.get(url, timeout=5)

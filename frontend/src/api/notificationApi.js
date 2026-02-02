@@ -28,7 +28,26 @@ const notificationApi = {
   },
 
 
+getMyReviewerInvitations: async () => {
+    const res = await axiosClient.get(
+      `${NOTI_PREFIX}/api/notifications/reviewer-invitations/me`
+    );
+    return res?.data ?? res;
+  },
 
+  acceptReviewerInvitation: async (invitationId) => {
+    const res = await axiosClient.post(
+      `${NOTI_PREFIX}/api/notifications/reviewer-invitations/${invitationId}/accept`
+    );
+    return res?.data ?? res;
+  },
+
+  declineReviewerInvitation: async (invitationId) => {
+    const res = await axiosClient.post(
+      `${NOTI_PREFIX}/api/notifications/reviewer-invitations/${invitationId}/decline`
+    );
+    return res?.data ?? res;
+  },
   
 
   getUnreadCount: async () => {

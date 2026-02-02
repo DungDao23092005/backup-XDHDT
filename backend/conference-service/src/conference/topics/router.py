@@ -14,8 +14,7 @@ import os
 import shutil
 
 router = APIRouter(
-    prefix="/topics",
-    tags=["Topics"]
+    prefix="/api/topics", tags=["Topics"]
 )
 
 # ========================
@@ -59,7 +58,7 @@ def create_topic(
     # ========================
     # CHECK THỜI GIAN HỘI NGHỊ (NV3)
     # ========================
-    now = datetime.now().date()
+    now = datetime.now()
 
     if now < conference.start_date:
         raise HTTPException(

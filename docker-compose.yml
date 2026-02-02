@@ -8,29 +8,29 @@ x-jwt-common: &jwt_common
 
 services:
   # ==========================================
-  # 0. API GATEWAY (Nginx Reverse Proxy)
+  # 0. API GATEWAY
   # ==========================================
   api-gateway:
     image: nginx:alpine
     container_name: api_gateway
-    restart: always
+    restart: unless-stopped
     ports:
       - "8080:80"
     volumes:
       - ./gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       submission-service:
-        condition: service_started
+        condition: service_healthy
       notification-service:
-        condition: service_started
+        condition: service_healthy
       conference-service:
-        condition: service_started
+        condition: service_healthy
       intelligent-service:
-        condition: service_started
+        condition: service_healthy
       review-service:
-        condition: service_started
+        condition: service_healthy
       identity-service:
-        condition: service_started
+        condition: service_healthy
     networks:
       - confms-network
 
@@ -40,7 +40,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: confms_redis
-    restart: always
+    restart: unless-stopped
     ports:
       - "6379:6379"
     networks:
@@ -51,21 +51,21 @@ services:
       timeout: 5s
       retries: 15
 
-  # 👇 MỚI: RABBITMQ BROKER
+  # GIỮ LẠI RABBITMQ ĐỂ GỬI MAIL
   rabbitmq:
     image: rabbitmq:3-management-alpine
     container_name: confms_rabbitmq
-    restart: always
+    restart: unless-stopped
     ports:
-      - "5672:5672"       # Cổng giao tiếp ứng dụng
-      - "15672:15672"     # Cổng Web quản lý
+      - "5672:5672"
+      - "15672:15672"
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     networks:
       - confms-network
     healthcheck:
-      test: rabbitmq-diagnostics -q ping
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -76,7 +76,7 @@ services:
   submission-db:
     image: mysql:8.0
     container_name: submission_db
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: submission_db
@@ -95,17 +95,17 @@ services:
   submission-service:
     build: ./backend/submission-service
     container_name: submission_service
-    restart: on-failure
+    restart: unless-stopped
     ports:
       - "8000:8000"
     depends_on:
       submission-db:
         condition: service_healthy
       identity-service:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
-      rabbitmq: # 👇 Chờ RabbitMQ chạy
+      rabbitmq:
         condition: service_healthy
     env_file:
       - ./.env
@@ -118,11 +118,9 @@ services:
       CONFERENCE_SERVICE_URL: http://conference-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
-      
       # Cấu hình RabbitMQ
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
-
       CACHE_TYPE: redis
       REDIS_URL: redis://redis:6379/0
       CACHE_PREFIX: submission-service
@@ -133,12 +131,18 @@ services:
       - ./backend/submission-service/src:/app/src
     networks:
       - confms-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
 
-  # 👇 MỚI: WORKER SERVICE (Xử lý ngầm)
+  # WORKER SERVICE (Vẫn giữ để gửi Email)
   worker-service:
-    build: ./backend/submission-service # Dùng chung code với submission
+    build: ./backend/submission-service
     container_name: worker_service
-    restart: on-failure
+    restart: unless-stopped
     command: python -u src/worker.py
     depends_on:
       rabbitmq:
@@ -149,7 +153,6 @@ services:
       - ./.env
       - ./backend/submission-service/.env
     environment:
-      # Cần biến môi trường giống Submission để kết nối DB/RabbitMQ
       DATABASE_URL: mysql+pymysql://root:root@submission-db:3306/submission_db
       RABBITMQ_HOST: rabbitmq
     volumes:
@@ -164,7 +167,7 @@ services:
   notification-db:
     image: mysql:8.0
     container_name: notification_db
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: notification_db
@@ -183,7 +186,7 @@ services:
   notification-service:
     build: ./backend/notification-service
     container_name: notification_service
-    restart: on-failure
+    restart: unless-stopped
     ports:
       - "8001:8000"
     depends_on:
@@ -198,7 +201,7 @@ services:
       INTERNAL_KEY: ${INTERNAL_KEY}
       SECRET_KEY: ${JWT_SECRET_KEY}
       DATABASE_URL: mysql+pymysql://root:root@notification-db:3306/notification_db
-
+      CONFERENCE_SERVICE_URL: http://conference-service:8000
       CACHE_TYPE: redis
       REDIS_URL: redis://redis:6379/0
       CACHE_PREFIX: notification-service
@@ -208,6 +211,12 @@ services:
       - ./backend/notification-service/serviceAccountKey.json:/app/serviceAccountKey.json
     networks:
       - confms-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
 
   # ==========================================
   # 3. CONFERENCE SERVICE
@@ -215,7 +224,7 @@ services:
   conference-db:
     image: mysql:8.0
     container_name: conference_db
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: conference_db
@@ -236,14 +245,16 @@ services:
       context: ./backend/conference-service
       dockerfile: Dockerfile
     container_name: conference_service
-    restart: on-failure
+    restart: unless-stopped
     ports:
       - "8002:8000"
+    volumes:
+      - ./backend/conference-service/src/static:/app/src/static
     depends_on:
       conference-db:
         condition: service_healthy
       identity-service:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
     env_file:
@@ -256,7 +267,6 @@ services:
       REVIEW_SERVICE_URL: http://review-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
-
       CACHE_TYPE: redis
       REDIS_URL: redis://redis:6379/0
       CACHE_PREFIX: conference-service
@@ -264,6 +274,12 @@ services:
       <<: *jwt_common
     networks:
       - confms-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
 
   # ==========================================
   # 4. INTELLIGENT SERVICE (AI)
@@ -271,7 +287,7 @@ services:
   intelligent-db:
     image: mysql:8.0
     container_name: intelligent_db
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: intelligent_db
@@ -290,7 +306,7 @@ services:
   intelligent-service:
     build: ./backend/intelligent-service
     container_name: intelligent_service
-    restart: on-failure
+    restart: unless-stopped
     ports:
       - "8004:8000"
     depends_on:
@@ -314,6 +330,12 @@ services:
       - ./backend/intelligent-service/src:/app/src
     networks:
       - confms-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
 
   # ==========================================
   # 5. REVIEW SERVICE
@@ -321,7 +343,7 @@ services:
   review-db:
     image: mysql:8.0
     container_name: review_db
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: review_db
@@ -340,18 +362,18 @@ services:
   review-service:
     build: ./backend/review-service
     container_name: review_service
-    restart: on-failure
+    restart: unless-stopped
     ports:
       - "8003:8000"
     depends_on:
       review-db:
         condition: service_healthy
       submission-service:
-        condition: service_started
+        condition: service_healthy
       conference-service:
-        condition: service_started
+        condition: service_healthy
       identity-service:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
     env_file:
@@ -364,7 +386,6 @@ services:
       CONFERENCE_SERVICE_URL: http://conference-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
-
       CACHE_TYPE: redis
       REDIS_URL: redis://redis:6379/0
       CACHE_PREFIX: review-service
@@ -372,6 +393,12 @@ services:
       <<: *jwt_common
     networks:
       - confms-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
 
   # ==========================================
   # 6. IDENTITY SERVICE
@@ -379,12 +406,12 @@ services:
   identity-db:
     image: mysql:8.0
     container_name: identity_db
-    restart: always
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_DATABASE: identity_db
     ports:
-      - "3312:3306"
+      - "3306:3306"
     volumes:
       - identity_db_data:/var/lib/mysql
     networks:
@@ -398,7 +425,7 @@ services:
   identity-service:
     build: ./backend/identity-service
     container_name: identity_service
-    restart: on-failure
+    restart: unless-stopped
     depends_on:
       identity-db:
         condition: service_healthy
@@ -413,12 +440,10 @@ services:
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
       NOTIFICATION_SERVICE_URL: http://notification-service:8000
       INTERNAL_KEY: ${INTERNAL_KEY}
-      
       SEED_ON_STARTUP: "true"
       ADMIN_EMAIL: admin@uth.edu.vn
       ADMIN_PASSWORD: 123456
       ADMIN_NAME: System Administrator
-
       CACHE_TYPE: redis
       REDIS_URL: redis://redis:6379/0
       CACHE_PREFIX: identity-service
@@ -426,6 +451,12 @@ services:
       <<: *jwt_common
     networks:
       - confms-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
 
   # ==========================================
   # 7. FRONTEND
@@ -433,26 +464,22 @@ services:
   frontend:
     build: ./frontend
     container_name: frontend_service
-    restart: always
+    restart: unless-stopped
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
     environment:
       - REACT_APP_API_URL=http://localhost:8080
     networks:
       - confms-network
 
   # ==========================================
-  # 8. MONITORING STACK (Prometheus & Grafana)
+  # 8. MONITORING STACK
   # ==========================================
   prometheus:
     image: prom/prometheus:latest
     container_name: confms_prometheus
-    restart: always
+    restart: unless-stopped
     volumes:
-      # LƯU Ý: Bạn cần tạo file prometheus.yml trước khi chạy
       - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
@@ -462,11 +489,11 @@ services:
   grafana:
     image: grafana/grafana:latest
     container_name: confms_grafana
-    restart: always
+    restart: unless-stopped
     ports:
-      - "3001:3000" # Map ra cổng 3001 để tránh trùng Frontend
+      - "3001:3000"
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin # Mật khẩu đăng nhập Grafana
+      - GF_SECURITY_ADMIN_PASSWORD=admin
     depends_on:
       - prometheus
     volumes:
@@ -474,67 +501,6 @@ services:
     networks:
       - confms-network
 
-  zookeeper:
-    image: confluentinc/cp-zookeeper:7.6.1
-    container_name: zookeeper
-    environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-      KAFKA_OPTS: "-Xmx256m -Xms256m"
-    ports:
-      - "22181:2181"
-    networks:
-      - confms-network
-
-  kafka:
-    image: confluentinc/cp-kafka:7.6.1
-    container_name: kafka
-    depends_on:
-      - zookeeper
-    ports:
-      - "29092:29092"
-    environment:
-      KAFKA_BROKER_ID: 1
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_HEAP_OPTS: "-Xmx400m -Xms400m"
-    networks:
-      - confms-network
-
-  kafka-ui: # Giao diện quản lý Kafka
-    image: provectuslabs/kafka-ui
-    container_name: kafka_ui
-    ports:
-      - "8090:8080"
-    restart: always
-    environment:
-      - KAFKA_CLUSTERS_0_NAME=local
-      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
-      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
-    networks:
-      - confms-network
-
-  logging-service: # (Service mới chuyên nghe Kafka)
-    build: ./backend/submission-service # Dùng chung code với submission
-    container_name: logging_service
-    command: python -u src/kafka_worker.py # Chạy file Kafka
-    volumes:
-      - ./backend/submission-service:/app
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-    depends_on:
-      - kafka
-    networks:
-      - confms-network
-
-# ==========================================
-# VOLUMES & NETWORKS
-# ==========================================
 volumes:
   submission_db_data:
   notification_db_data:

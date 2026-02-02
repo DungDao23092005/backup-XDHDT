@@ -6,6 +6,30 @@ from src import database, models
 
 router = APIRouter(prefix="/reviewers", tags=["Reviewers"])
 
+@router.get("/accepted")
+def get_accepted_reviewers(conference_id: int, db: Session = Depends(get_db)):
+    accepted = requests.get(
+        f"http://notification-service:8000/api/notifications/reviewer-invitations"
+        f"?conference_id={conference_id}&status=ACCEPTED",
+        timeout=5
+    ).json()
+
+    users = requests.get(
+        "http://identity-service:8000/api/users",  # nếu có filter role thì tốt hơn
+        timeout=5
+    ).json()
+
+    # lọc reviewer role
+    reviewer_users = [u for u in users if any(r.get("name") == "REVIEWER" for r in (u.get("roles") or []))]
+
+    accepted_emails = set([x["reviewer_email"].lower() for x in accepted])
+
+    return [
+        u for u in reviewer_users
+        if (u.get("email") or "").lower() in accepted_emails
+    ]
+
+
 @router.post("/invite")
 def invite_reviewer(
     conference_id: int,

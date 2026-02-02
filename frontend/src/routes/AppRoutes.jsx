@@ -60,7 +60,8 @@ import ConferenceDetailPage from "../pages/chair/conference/ConferenceDetailPage
 import ConferenceEditPage from "../pages/chair/conference/ConferenceEditPage";
 import TrackEditPage from "../pages/chair/tracks/TrackEditPage";
 import ReviewerManagementPage from "../pages/chair/ReviewerManagementPage";
-
+import CreateTopicPage from "../pages/chair/topics/CreateTopicPage";
+import ReviewerAssignmentPage from "../pages/chair/ReviewerAssignmentPage";
 const AppRoutes = () => {
   return (
     <Routes>
@@ -114,7 +115,9 @@ const AppRoutes = () => {
           <Route path="/chair/conferences/:id" element={<ConferenceDetailPage />} />
           <Route path="/chair/conferences/:id/edit" element={<ConferenceEditPage />} />
           <Route path="/chair/tracks/:id/edit" element={<TrackEditPage />} />
+          <Route path="/chair/topics/create" element={<CreateTopicPage />} />
           <Route path="/chair/reviewers" element={<ReviewerManagementPage />} />
+          <Route path="/chair/reviewers/assign" element={<ReviewerAssignmentPage />} />
           <Route path="/chair/profile" element={<ProfilePage />} /> 
           <Route path="/chair/settings" element={<AccountSettings />} />
 
