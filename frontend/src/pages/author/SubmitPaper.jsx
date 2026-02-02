@@ -3,6 +3,7 @@ import { useMemo, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { submitPaper } from "../../api/submissionApi";
 import conferenceApi from "../../api/conferenceApi";
+import topicApi from "../../api/topicApi";
 
 const MAX_MB = 20;
 
@@ -260,10 +261,11 @@ export default function SubmitPaper() {
         setError("");
 
         setTopics([]);
-        const data = await conferenceApi.getTopicsByTrack(trackId);
+        const data = await topicApi.getTopicsByTrack(trackId);
         const arr = Array.isArray(data) ? data : data?.items || [];
         setTopicOptions(arr);
       } catch (e) {
+        console.error("Lỗi chi tiết:", e);
         setError(e?.response?.data?.detail || "Không tải được topics theo track.");
         setTopicOptions([]);
       } finally {

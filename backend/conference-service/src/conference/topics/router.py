@@ -60,11 +60,11 @@ def create_topic(
     # ========================
     now = datetime.now()
 
-    if now < conference.start_date:
-        raise HTTPException(
-            status_code=400,
-            detail="Conference has not started yet. Cannot create topic."
-        )
+    if now > conference.end_date:
+            raise HTTPException(
+                status_code=400,
+                detail="Conference has ended. Cannot create topic."
+            )
 
     if now > conference.end_date:
         raise HTTPException(
