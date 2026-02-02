@@ -59,3 +59,7 @@ export const uploadCameraReady = ({ paperId, file }) => {
 export const updateSubmissionAuthor = (paperId, authorId, authorData) => {
   return axiosClient.put(`${BASE}/${paperId}/authors/${authorId}`, authorData);
 };
+
+export async function listOpenForBidding() {
+  return axiosClient.get(`${BASE}/open-for-bidding`);
+}

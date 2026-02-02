@@ -61,14 +61,92 @@ const makeReviewerKey = (inv, acc) => {
   return name ? `name:${name}` : `unknown:${String(acc?.id || inv?.id || Math.random())}`;
 };
 
+// ---- helper: safe get ids
+const asStr = (v) => (v === null || v === undefined ? "" : String(v));
+const normId = (v) => asStr(v).trim();
+
+// ---- helper: paper filters
+
+// ✅ match conference:
+// - nếu paper có conference_id thì match trực tiếp
+// - nếu paper KHÔNG có conference_id (case của bạn) -> fallback bằng track_id thuộc conference đang chọn
+const matchConference = (paper, confId, confTracks = []) => {
+  if (!confId) return true;
+
+  const pid =
+    paper?.conference_id ??
+    paper?.conferenceId ??
+    paper?.conference?.id ??
+    paper?.conference?.conference_id ??
+    null;
+
+  if (pid != null) return normId(pid) === normId(confId);
+
+  // fallback by track list
+  const tid = paper?.track_id ?? paper?.trackId ?? paper?.track?.id ?? null;
+  if (tid == null) return false;
+
+  const trackIdSet = new Set((confTracks || []).map((t) => normId(t?.id)));
+  return trackIdSet.has(normId(tid));
+};
+
+const matchTrack = (paper, trackId) => {
+  if (!trackId) return true;
+  const tid = paper?.track_id ?? paper?.trackId ?? paper?.track?.id ?? null;
+  if (tid == null) return false;
+  return normId(tid) === normId(trackId);
+};
+
+// ✅ topics trong paper của bạn: [{ topic_id: 1, id: 2 }]
+// nên phải ưu tiên topic_id (không lấy id)
+const extractTopicIds = (paper) => {
+  const raw =
+    paper?.topic_ids ??
+    paper?.topicIds ??
+    paper?.topics ??
+    paper?.topic ??
+    paper?.topic_id ??
+    paper?.topicId ??
+    null;
+
+  if (!raw) return [];
+
+  if (typeof raw === "number" || typeof raw === "string") return [normId(raw)];
+
+  if (Array.isArray(raw)) {
+    return raw
+      .map((x) => {
+        if (x == null) return "";
+        if (typeof x === "number" || typeof x === "string") return normId(x);
+        // ✅ ưu tiên topic_id vì data có {topic_id, id}
+        return normId(x.topic_id ?? x.topicId ?? x.id);
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof raw === "object") {
+    const id = raw.topic_id ?? raw.topicId ?? raw.id;
+    return id != null ? [normId(id)] : [];
+  }
+
+  return [];
+};
+
+const matchTopic = (paper, topicId) => {
+  if (!topicId) return true;
+  const ids = extractTopicIds(paper);
+  return ids.includes(normId(topicId));
+};
+
 export default function ReviewerAssignmentPage() {
   const [loading, setLoading] = useState(true);
+  const [assigning, setAssigning] = useState(false);
 
   const [conferences, setConferences] = useState([]);
   const [searchConf, setSearchConf] = useState("");
   const [selectedConfId, setSelectedConfId] = useState(null);
 
-  // track/topic (load đúng theo ConferenceDetailPage: tracks by conference + topics by track)
+  // track/topic
   const [tracks, setTracks] = useState([]);
   const [topics, setTopics] = useState([]); // flatten all topics of selected conf
   const [topicsByTrack, setTopicsByTrack] = useState({}); // { [trackId]: Topic[] }
@@ -125,7 +203,7 @@ export default function ReviewerAssignmentPage() {
     return (conferences || []).find((c) => String(c?.id) === id) || null;
   }, [conferences, selectedConfId]);
 
-  // ✅ Load tracks/topics theo đúng API đang chạy ở ConferenceDetailPage
+  // ✅ Load tracks/topics
   useEffect(() => {
     const run = async () => {
       if (!selectedConfId) {
@@ -138,7 +216,6 @@ export default function ReviewerAssignmentPage() {
         return;
       }
 
-      // reset UI when changing conference
       setTracks([]);
       setTopics([]);
       setTopicsByTrack({});
@@ -147,12 +224,10 @@ export default function ReviewerAssignmentPage() {
       setSelectedIds(new Set());
 
       try {
-        // 1) tracks by conference
         const t = await conferenceApi.getTracksByConference(selectedConfId);
         const trackList = Array.isArray(t) ? t : [];
         setTracks(trackList);
 
-        // 2) topics by each track
         const map = {};
         await Promise.all(
           trackList.map(async (tr) => {
@@ -167,10 +242,7 @@ export default function ReviewerAssignmentPage() {
         );
 
         setTopicsByTrack(map);
-
-        // flatten topics
-        const allTopics = Object.values(map).flat();
-        setTopics(allTopics);
+        setTopics(Object.values(map).flat());
       } catch (e) {
         console.error("Load tracks/topics failed", e);
         setTracks([]);
@@ -192,7 +264,6 @@ export default function ReviewerAssignmentPage() {
     return m;
   }, [reviewerAccounts]);
 
-  // ✅ count invited for selected conf (id first, fallback by name)
   const invitedCountForSelected = useMemo(() => {
     if (!selectedConference) return 0;
 
@@ -208,7 +279,6 @@ export default function ReviewerAssignmentPage() {
     }).length;
   }, [items, selectedConference]);
 
-  // ✅ accepted reviewers: filter "an toàn" theo conference + dedupe
   const acceptedReviewers = useMemo(() => {
     const list = (items || []).filter((i) => String(i.status).toUpperCase() === "ACCEPTED");
     if (!selectedConference) return [];
@@ -222,10 +292,7 @@ export default function ReviewerAssignmentPage() {
 
       if (cid != null && selectedId) return String(cid) === selectedId;
       if (!cid && cname && selectedName) return cname === selectedName;
-
-      // thiếu cả id/name -> vẫn giữ (tránh rỗng toàn bộ)
       if (!cid && !cname) return true;
-
       return false;
     });
 
@@ -244,7 +311,6 @@ export default function ReviewerAssignmentPage() {
     return Array.from(dedupMap.values());
   }, [items, accountByEmail, selectedConference]);
 
-  // checkbox all
   const allChecked = useMemo(() => {
     if (!acceptedReviewers.length) return false;
     return acceptedReviewers.every((r) => selectedIds.has(String(r.account.id)));
@@ -274,7 +340,18 @@ export default function ReviewerAssignmentPage() {
     });
   };
 
-  const handleAssign = () => {
+  const topicOptions = useMemo(() => {
+    if (!trackId) return topics || [];
+    return (topics || []).filter((t) => String(t.track_id) === String(trackId));
+  }, [topics, trackId]);
+
+  const getTopicTagsForConf = (conf) => {
+    if (!selectedConfId || String(conf?.id) !== String(selectedConfId)) return [];
+    const all = Object.values(topicsByTrack || {}).flat();
+    return all.map((x) => x?.name).filter(Boolean);
+  };
+
+  const handleAssign = async () => {
     if (!selectedConference) {
       alert("Vui lòng chọn hội nghị.");
       return;
@@ -284,28 +361,90 @@ export default function ReviewerAssignmentPage() {
       return;
     }
 
-    const chosenTrack = tracks.find((t) => String(t.id) === String(trackId));
-    const chosenTopic = (topics || []).find((t) => String(t.id) === String(topicId));
+    setAssigning(true);
+    try {
+      const papers = await reviewerApi.getOpenPapersForBidding();
 
-    alert(
-      `UI OK ✅\nHội nghị: ${selectedConference?.name || selectedConference?.conference_name}\nTrack: ${
-        chosenTrack?.name || trackId || "—"
-      }\nTopic: ${chosenTopic?.name || topicId || "—"}\nSố reviewer chọn: ${selectedIds.size}`
-    );
-  };
+      const filtered = (papers || []).filter((p) => {
+        return (
+          matchConference(p, selectedConference.id, tracks) &&
+          matchTrack(p, trackId) &&
+          matchTopic(p, topicId)
+        );
+      });
 
-  // ✅ topics filtered by track (topicApi trả {id, name, track_id})
-  const topicOptions = useMemo(() => {
-    if (!trackId) return topics || [];
-    return (topics || []).filter((t) => String(t.track_id) === String(trackId));
-  }, [topics, trackId]);
+      const paperIds = filtered.map((p) => p?.id).filter((x) => x !== null && x !== undefined);
 
-  // ✅ topic tags for left list:
-  // - Hiển thị tag cho hội nghị đang chọn (vì topicsByTrack được load theo selectedConfId)
-  const getTopicTagsForConf = (conf) => {
-    if (!selectedConfId || String(conf?.id) !== String(selectedConfId)) return [];
-    const all = Object.values(topicsByTrack || {}).flat();
-    return all.map((x) => x?.name).filter(Boolean);
+      if (paperIds.length === 0) {
+        alert("Không có bài nào phù hợp để phân công theo bộ lọc hiện tại.");
+        return;
+      }
+
+      const reviewerIds = Array.from(selectedIds)
+        .map((x) => Number(x))
+        .filter((x) => !Number.isNaN(x));
+
+      const chosenTrack = tracks.find((t) => String(t.id) === String(trackId));
+      const chosenTopic = (topics || []).find((t) => String(t.id) === String(topicId));
+      const ok = window.confirm(
+        `Xác nhận phân công?\n` +
+          `Hội nghị: ${selectedConference?.name || selectedConference?.conference_name}\n` +
+          `Track: ${chosenTrack?.name || (trackId ? trackId : "—")}\n` +
+          `Topic: ${chosenTopic?.name || (topicId ? topicId : "—")}\n` +
+          `Reviewer: ${reviewerIds.length}\n` +
+          `Bài phù hợp: ${paperIds.length}\n\n` +
+          `Lưu ý: hệ thống sẽ bỏ qua các bài đã phân công trùng.`
+      );
+      if (!ok) return;
+
+      let created = 0;
+      let skipped = 0;
+
+      for (const rid of reviewerIds) {
+        let existing = [];
+        try {
+          existing = await reviewerApi.listAssignmentsByReviewer(rid);
+        } catch (e) {
+          console.error("listAssignmentsByReviewer failed", rid, e);
+          existing = [];
+        }
+
+        const existingPaperIds = new Set(
+          (existing || [])
+            .map((a) => a?.paper_id ?? a?.paperId)
+            .filter(Boolean)
+            .map(String)
+        );
+
+        for (const pid of paperIds) {
+          const pidStr = String(pid);
+          if (existingPaperIds.has(pidStr)) {
+            skipped += 1;
+            continue;
+          }
+
+          try {
+            await reviewerApi.createAssignment({
+              reviewer_id: rid,
+              paper_id: Number(pid),
+              is_manual: true,
+              due_date: null,
+            });
+            created += 1;
+          } catch (e) {
+            console.error("createAssignment failed", { rid, pid }, e);
+            skipped += 1;
+          }
+        }
+      }
+
+      alert(`✅ Phân công xong!\nTạo mới: ${created}\nBỏ qua/Trùng/Lỗi: ${skipped}`);
+    } catch (e) {
+      console.error(e);
+      alert("❌ Phân công thất bại. Xem console log để biết chi tiết.");
+    } finally {
+      setAssigning(false);
+    }
   };
 
   return (
@@ -441,9 +580,9 @@ export default function ReviewerAssignmentPage() {
                   <button
                     onClick={handleAssign}
                     className="px-5 h-11 bg-rose-600 text-white rounded-xl font-bold shadow hover:opacity-95 disabled:opacity-60"
-                    disabled={!selectedConference || selectedCount === 0}
+                    disabled={!selectedConference || selectedCount === 0 || assigning}
                   >
-                    Phân công ({String(selectedCount).padStart(2, "0")})
+                    {assigning ? "Đang phân công..." : `Phân công (${String(selectedCount).padStart(2, "0")})`}
                   </button>
                 </div>
               </div>
@@ -597,7 +736,7 @@ export default function ReviewerAssignmentPage() {
               <button
                 className="px-4 h-10 rounded-xl border font-bold text-slate-700 hover:bg-slate-50"
                 onClick={() => setSelectedIds(new Set())}
-                disabled={!selectedCount}
+                disabled={!selectedCount || assigning}
               >
                 Bỏ chọn
               </button>
@@ -607,7 +746,8 @@ export default function ReviewerAssignmentPage() {
 
         {selectedConference && tracks.length === 0 ? (
           <div className="text-xs text-slate-500">
-            * Không thấy track? Kiểm tra endpoint <code className="mx-1">GET /conference/api/tracks/conference/{`{conferenceId}`}</code>.
+            * Không thấy track? Kiểm tra endpoint{" "}
+            <code className="mx-1">GET /conference/api/tracks/conference/{`{conferenceId}`}</code>.
           </div>
         ) : null}
       </div>
