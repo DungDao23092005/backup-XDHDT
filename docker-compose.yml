@@ -35,7 +35,7 @@ services:
       - confms-network
 
   # ==========================================
-  # 0.5. REDIS (CACHE)
+  # 0.5. INFRASTRUCTURE (REDIS & RABBITMQ)
   # ==========================================
   redis:
     image: redis:7-alpine
@@ -51,9 +51,27 @@ services:
       timeout: 5s
       retries: 15
 
+  # 👇 MỚI: RABBITMQ BROKER
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: confms_rabbitmq
+    restart: always
+    ports:
+      - "5672:5672"       # Cổng giao tiếp ứng dụng
+      - "15672:15672"     # Cổng Web quản lý
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - confms-network
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   # ==========================================
-  # 1. SUBMISSION SERVICE
+  # 1. SUBMISSION SERVICE & WORKER
   # ==========================================
   submission-db:
     image: mysql:8.0
@@ -87,6 +105,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      rabbitmq: # 👇 Chờ RabbitMQ chạy
+        condition: service_healthy
     env_file:
       - ./.env
       - ./backend/submission-service/.env
@@ -98,6 +118,10 @@ services:
       CONFERENCE_SERVICE_URL: http://conference-service:8000
       INTELLIGENT_SERVICE_URL: http://intelligent-service:8000
       IDENTITY_SERVICE_URL: http://identity-service:8000
+      
+      # Cấu hình RabbitMQ
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
 
       CACHE_TYPE: redis
       REDIS_URL: redis://redis:6379/0
@@ -106,6 +130,31 @@ services:
       <<: *jwt_common
     volumes:
       - ./backend/submission-service/uploads:/app/uploads
+      - ./backend/submission-service/src:/app/src
+    networks:
+      - confms-network
+
+  # 👇 MỚI: WORKER SERVICE (Xử lý ngầm)
+  worker-service:
+    build: ./backend/submission-service # Dùng chung code với submission
+    container_name: worker_service
+    restart: on-failure
+    command: python -u src/worker.py
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      submission-db:
+        condition: service_healthy
+    env_file:
+      - ./.env
+      - ./backend/submission-service/.env
+    environment:
+      # Cần biến môi trường giống Submission để kết nối DB/RabbitMQ
+      DATABASE_URL: mysql+pymysql://root:root@submission-db:3306/submission_db
+      RABBITMQ_HOST: rabbitmq
+    volumes:
+      - ./backend/submission-service/uploads:/app/uploads
+      - ./backend/submission-service/src:/app/src
     networks:
       - confms-network
 
@@ -395,6 +444,94 @@ services:
     networks:
       - confms-network
 
+  # ==========================================
+  # 8. MONITORING STACK (Prometheus & Grafana)
+  # ==========================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: confms_prometheus
+    restart: always
+    volumes:
+      # LƯU Ý: Bạn cần tạo file prometheus.yml trước khi chạy
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - confms-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: confms_grafana
+    restart: always
+    ports:
+      - "3001:3000" # Map ra cổng 3001 để tránh trùng Frontend
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Mật khẩu đăng nhập Grafana
+    depends_on:
+      - prometheus
+    volumes:
+      - grafana_data:/var/lib/grafana
+    networks:
+      - confms-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+      KAFKA_OPTS: "-Xmx256m -Xms256m"
+    ports:
+      - "22181:2181"
+    networks:
+      - confms-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_HEAP_OPTS: "-Xmx400m -Xms400m"
+    networks:
+      - confms-network
+
+  kafka-ui: # Giao diện quản lý Kafka
+    image: provectuslabs/kafka-ui
+    container_name: kafka_ui
+    ports:
+      - "8090:8080"
+    restart: always
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+      - KAFKA_CLUSTERS_0_ZOOKEEPER=zookeeper:2181
+    networks:
+      - confms-network
+
+  logging-service: # (Service mới chuyên nghe Kafka)
+    build: ./backend/submission-service # Dùng chung code với submission
+    container_name: logging_service
+    command: python -u src/kafka_worker.py # Chạy file Kafka
+    volumes:
+      - ./backend/submission-service:/app
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      - kafka
+    networks:
+      - confms-network
+
 # ==========================================
 # VOLUMES & NETWORKS
 # ==========================================
@@ -405,6 +542,7 @@ volumes:
   intelligent_db_data:
   review_db_data:
   identity_db_data:
+  grafana_data:
 
 networks:
   confms-network:

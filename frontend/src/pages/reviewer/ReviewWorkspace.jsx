@@ -152,6 +152,7 @@ const ReviewWorkspace = () => {
 
   const pdfUrl = useMemo(() => {
       if (paper?.versions && paper.versions.length > 0) {
+          const relativeUrl = paper.versions[0].file_url;
           return paper.versions[0].file_url;
       }
       return null;
