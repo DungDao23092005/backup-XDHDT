@@ -132,7 +132,11 @@ services:
     networks:
       - confms-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json').read()\" >/dev/null 2>&1 || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -212,7 +216,11 @@ services:
     networks:
       - confms-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json').read()\" >/dev/null 2>&1 || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -275,7 +283,11 @@ services:
     networks:
       - confms-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json').read()\" >/dev/null 2>&1 || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -331,7 +343,11 @@ services:
     networks:
       - confms-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json').read()\" >/dev/null 2>&1 || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -394,7 +410,11 @@ services:
     networks:
       - confms-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json').read()\" >/dev/null 2>&1 || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -452,7 +472,11 @@ services:
     networks:
       - confms-network
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8000/openapi.json >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/openapi.json').read()\" >/dev/null 2>&1 || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 15

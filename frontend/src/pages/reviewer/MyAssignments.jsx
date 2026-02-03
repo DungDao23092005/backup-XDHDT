@@ -1,3 +1,4 @@
+// src/pages/reviewer/MyAssignments.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import reviewApi from "../../api/reviewApi";
@@ -79,7 +80,7 @@ export default function MyAssignments() {
   const [items, setItems] = useState([]);
 
   // COI States
-  const [openCoiPaperIds, setOpenCoiPaperIds] = useState(new Set());
+  // [FIX] Removed unused openCoiPaperIds state
   const [resolvingByPaperId, setResolvingByPaperId] = useState({});
 
   // Tabs cho ASSIGNMENTS
@@ -146,7 +147,7 @@ export default function MyAssignments() {
           .filter((c) => (c.status?.value ?? c.status ?? "").toLowerCase() === "open")
           .map((c) => c.paper_id)
       );
-      setOpenCoiPaperIds(openSet);
+      // [FIX] Removed setOpenCoiPaperIds(openSet)
 
       // 3. Enrich Data (Check Submitted)
       const enrichedAssignments = await Promise.all(

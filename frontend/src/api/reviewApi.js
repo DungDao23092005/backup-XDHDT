@@ -119,10 +119,17 @@ const reviewApi = {
   getPaperPdfUrlByAssignment: (assignmentId) =>
     axiosClient.get(`/review/papers/${assignmentId}/pdf-url`),
 
-  // ✅ [MỚI] Tải file PDF bảo mật (Stream)
+  // ✅ [REVIEWER] Tải file PDF thông qua Assignment (cần check quyền sở hữu assignment)
   downloadPaper: (assignmentId) => {
     return axiosClient.get(`/review/papers/${assignmentId}/download`, {
       responseType: 'blob', // Quan trọng: báo cho axios biết server trả về file binary
+    });
+  },
+
+  // ✅ [CHAIR/ADMIN] Tải file PDF trực tiếp bằng Paper ID (dùng cho Split View / Monitor)
+  downloadPaperByPaperId: (paperId) => {
+    return axiosClient.get(`/review/papers/paper/${paperId}/download`, {
+      responseType: 'blob',
     });
   },
 

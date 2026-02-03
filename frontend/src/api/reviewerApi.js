@@ -5,8 +5,9 @@ import axiosClient from "./axiosClient";
  * - notification-service: /notification/api/notifications
  * - identity-service:     /identity/api/users
  * - conference-service:   /conference/api/conferences
- * - submission-service:   /submission/submissaions
+ * - submission-service:   /submission/submissions
  * - review-service:       /review/assignments
+ * /review/papers
  */
 const NOTIFICATION_PREFIX = "/notification/api/notifications";
 const IDENTITY_PREFIX = "/identity/api/users";
@@ -16,6 +17,7 @@ const TOPIC_PREFIX = "/conference/api/topics";
 
 const SUBMISSION_PREFIX = "/submission/submissions";
 const REVIEW_ASSIGNMENT_PREFIX = "/review/assignments";
+const REVIEW_PAPER_PREFIX = "/review/papers"; // ✅ Đã thêm prefix cho papers
 
 const unwrap = (res) => (res?.data !== undefined ? res.data : res);
 
@@ -85,6 +87,24 @@ const reviewerApi = {
     const res = await axiosClient.get(`${SUBMISSION_PREFIX}/open-for-bidding`);
     const data = unwrap(res);
     return Array.isArray(data) ? data : [];
+  },
+
+  /* =========================
+   * Download Paper (PDF)
+   * ========================= */
+  
+  // 1. Dành cho Reviewer (cần assignment_id để check quyền)
+  downloadPaper: async (assignmentId) => {
+    return axiosClient.get(`${REVIEW_PAPER_PREFIX}/${assignmentId}/download`, {
+      responseType: 'blob', // Quan trọng: trả về file binary
+    });
+  },
+
+  // 2. Dành cho Chair/Admin (dùng paper_id trực tiếp - Fix lỗi Split View)
+  downloadPaperByPaperId: async (paperId) => {
+    return axiosClient.get(`${REVIEW_PAPER_PREFIX}/paper/${paperId}/download`, {
+      responseType: 'blob',
+    });
   },
 
   /* =========================
